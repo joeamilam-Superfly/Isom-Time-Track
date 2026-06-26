@@ -1,0 +1,25 @@
+[build]
+  publish = "site"
+  command = "echo 'No build step required'"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# Scheduled function: runs hourly (cron runs in UTC). The function itself
+# checks whether the current America/New_York hour is 16 (4pm ET) and only
+# acts then, so it stays correct across the EST/EDT daylight saving
+# transition without needing two different cron expressions per season.
+# (Schedule is also declared inline in the function file via the exported
+# `config` object, which is the more current approach - this entry is a
+# fallback in case that's not picked up.)
+[functions."scheduled-reminders"]
+  schedule = "0 * * * *"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200

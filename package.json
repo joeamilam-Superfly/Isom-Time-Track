@@ -1,0 +1,10 @@
+{
+  "name": "multi-company-timesheet",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "bcryptjs": "^3.0.3",
+    "ws": "^8.18.0"
+  }
+}
