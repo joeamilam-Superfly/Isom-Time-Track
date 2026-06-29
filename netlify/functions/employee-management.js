@@ -174,5 +174,131 @@ exports.handler = async (event) => {
     return { statusCode: 200, body: JSON.stringify({ roleAssignment: data }) };
   }
 
+  // ---------------- PATCH: edit an existing employee's profile fields
+  // and/or their role at this company. Separate from the PUT handler
+  // above (which is purely the active/inactive toggle) to keep each
+  // action focused. firstName/lastName/phone/email live on the shared
+  // employees record (so changes apply everywhere that person works,
+  // not just at this company); role and foremanId are specific to this
+  // one company's employee_company_roles row. ----
+  if (event.httpMethod === 'PATCH') {
+    let body;
+    try {
+      body = JSON.parse(event.body || '{}');
+    } catch {
+      return { statusCode: 400, body: JSON.stringify({ error: 'Invalid request body' }) };
+    }
+
+    const { companyId, employeeId, firstName, lastName, phone, email, role, foremanId } = body;
+    if (!companyId) return { statusCode: 400, body: JSON.stringify({ error: 'companyId is required' }) };
+    if (!employeeId) return { statusCode: 400, body: JSON.stringify({ error: 'employeeId is required' }) };
+
+    const myRole = await resolveCompanyRole(auth.employeeId, companyId, auth.superAdmin);
+    if (!myRole || myRole.role !== 'admin') {
+      return forbidden('Only admins can edit an employee\'s profile');
+    }
+
+    const targetRole = await resolveCompanyRole(employeeId, companyId, false);
+    if (!targetRole) {
+      return { statusCode: 404, body: JSON.stringify({ error: 'That employee does not have a role at this company' }) };
+    }
+
+    // Block changing the only active admin at this company down to a
+    // different role - same protection as the deactivate guard above,
+    // so a company can never accidentally end up with zero admins.
+    if (role && role !== 'admin' && targetRole.role === 'admin') {
+      const { data: otherAdmins, error: countError } = await supabase
+        .from('employee_company_roles')
+        .select('employee_id')
+        .eq('company_id', companyId)
+        .eq('role', 'admin')
+        .eq('active', true)
+        .neq('employee_id', employeeId);
+
+      if (countError) return errorResponse(countError);
+      if (!otherAdmins || otherAdmins.length === 0) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'This is the last active admin at this company. Assign another admin before changing this one\'s role.' }) };
+      }
+    }
+
+    if (role && !['employee', 'foreman', 'admin'].includes(role)) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'role must be employee, foreman, or admin' }) };
+    }
+
+    if (foremanId) {
+      const foremanRole = await resolveCompanyRole(foremanId, companyId, false);
+      if (!foremanRole) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'The selected foreman does not have a role at this company' }) };
+      }
+    }
+
+    // Profile fields live on the shared employees record
+    const profileUpdate = {};
+    if (firstName !== undefined) profileUpdate.first_name = firstName;
+    if (lastName !== undefined) profileUpdate.last_name = lastName;
+    if (email !== undefined) profileUpdate.email = email || null;
+
+    if (phone !== undefined) {
+      const normalizedPhone = normalizePhone(phone);
+      if (!normalizedPhone) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'Could not understand that phone number - use a 10-digit US number' }) };
+      }
+
+      const { data: phoneOwner } = await supabase
+        .from('employees')
+        .select('id')
+        .eq('phone', normalizedPhone)
+        .maybeSingle();
+
+      if (phoneOwner && phoneOwner.id !== employeeId) {
+        return { statusCode: 409, body: JSON.stringify({ error: 'That phone number is already in use by a different employee.' }) };
+      }
+
+      profileUpdate.phone = normalizedPhone;
+    }
+
+    if (Object.keys(profileUpdate).length > 0) {
+      profileUpdate.updated_at = new Date().toISOString();
+      const { error: profileError } = await supabase
+        .from('employees')
+        .update(profileUpdate)
+        .eq('id', employeeId);
+
+      if (profileError) return errorResponse(profileError);
+    }
+
+    // Role/foreman live on employee_company_roles, scoped to this company
+    const roleUpdate = {};
+    if (role !== undefined) roleUpdate.role = role;
+    if (foremanId !== undefined) roleUpdate.foreman_id = foremanId || null;
+
+    let updatedRoleRow = null;
+    if (Object.keys(roleUpdate).length > 0) {
+      const { data: roleData, error: roleError } = await supabase
+        .from('employee_company_roles')
+        .update(roleUpdate)
+        .eq('employee_id', employeeId)
+        .eq('company_id', companyId)
+        .select()
+        .single();
+
+      if (roleError) return errorResponse(roleError);
+      updatedRoleRow = roleData;
+    }
+
+    const { data: updatedEmployee, error: fetchError } = await supabase
+      .from('employees')
+      .select('id, first_name, last_name, phone, email')
+      .eq('id', employeeId)
+      .maybeSingle();
+
+    if (fetchError) return errorResponse(fetchError);
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ employee: updatedEmployee, roleAssignment: updatedRoleRow }),
+    };
+  }
+
   return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
 };

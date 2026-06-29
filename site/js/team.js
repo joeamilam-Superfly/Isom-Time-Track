@@ -112,6 +112,8 @@ function renderTeamDetailContent(data) {
     <div class="screen-sub">${employee.role.charAt(0).toUpperCase() + employee.role.slice(1)} &middot; ${escapeHtml(employee.phone)}</div>
     ${employee.roleActive === false ? `<div class="banner banner-warn">This person is deactivated at this company. They cannot log in to act here, but their history below is preserved.</div>` : ''}
 
+    ${isAdmin ? `<button class="btn btn-ghost btn-sm" id="edit-profile-btn" style="margin-bottom:14px;">Edit profile</button>` : ''}
+
     <div class="summary-card">
       <div class="summary-row"><span class="label">Regular hours (this week)</span><span class="value">${currentWeekTotals.regularHoursWorked.toFixed(2)}</span></div>
       <div class="summary-row"><span class="label">Overtime</span><span class="value">${currentWeekTotals.overtimeHoursWorked.toFixed(2)}</span></div>
@@ -173,6 +175,7 @@ function renderTeamDetailContent(data) {
   `;
 
   if (isAdmin) {
+    document.getElementById('edit-profile-btn').addEventListener('click', () => showEditProfileDialog(employee));
     document.getElementById('edit-allotment-btn').addEventListener('click', () => showEditAllotmentDialog(employee, ptoBalance));
     document.getElementById('toggle-active-btn').addEventListener('click', () => toggleEmployeeActive(employee));
   }
@@ -353,6 +356,127 @@ async function showAddEmployeeDialog() {
       errorEl.innerHTML = errorHtml(err.message);
       saveBtn.disabled = false;
       saveBtn.textContent = 'Add';
+    }
+  });
+}
+
+async function showEditProfileDialog(employee) {
+  // Fetch the current team list to populate the foreman dropdown, same
+  // pattern as the Add Employee dialog.
+  let existingPeople = [];
+  try {
+    const teamData = await api(withCompany('/dashboard'));
+    existingPeople = teamData.people || [];
+  } catch (err) {
+    alert(`Could not load the current team list: ${err.message}`);
+    return;
+  }
+
+  const possibleForemen = existingPeople.filter(p => (p.role === 'foreman' || p.role === 'admin') && p.id !== employee.id);
+
+  // currentForemanId isn't part of the drill-down response today, so the
+  // dropdown can't be pre-selected to their existing assignment - it
+  // just defaults to "no foreman" and the admin picks explicitly if
+  // they want to set or change it. Leaving foremanId out of the PATCH
+  // body entirely (rather than sending null) means an unrelated edit,
+  // like fixing a typo in the name, won't accidentally clear an
+  // existing foreman assignment.
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;overflow-y:auto;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;max-height:85vh;overflow-y:auto;">
+      <div style="font-weight:700;font-size:17px;margin-bottom:14px;">Edit profile</div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="edit-first-name">First name</label>
+          <input id="edit-first-name" type="text" value="${escapeHtml(employee.firstName)}" />
+        </div>
+        <div class="field">
+          <label for="edit-last-name">Last name</label>
+          <input id="edit-last-name" type="text" value="${escapeHtml(employee.lastName)}" />
+        </div>
+      </div>
+      <div class="field">
+        <label for="edit-phone">Mobile number</label>
+        <input id="edit-phone" type="tel" inputmode="tel" value="${escapeHtml(employee.phone)}" />
+      </div>
+      <div class="screen-sub">Changing this changes their login number and where text messages go - they'll need to use the new number to log in afterward.</div>
+      <div class="field">
+        <label for="edit-email">Email (optional)</label>
+        <input id="edit-email" type="email" value="${employee.email ? escapeHtml(employee.email) : ''}" />
+      </div>
+      <div class="field">
+        <label for="edit-role">Role at this company</label>
+        <select id="edit-role">
+          <option value="employee" ${employee.role === 'employee' ? 'selected' : ''}>Employee</option>
+          <option value="foreman" ${employee.role === 'foreman' ? 'selected' : ''}>Foreman</option>
+          <option value="admin" ${employee.role === 'admin' ? 'selected' : ''}>Admin</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="edit-foreman">Default assigned foreman (optional)</label>
+        <select id="edit-foreman">
+          <option value="">No change / no foreman</option>
+          ${possibleForemen.map(p => `<option value="${p.id}">${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)} (${p.role})</option>`).join('')}
+        </select>
+      </div>
+
+      <div id="edit-profile-error"></div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-ghost" id="edit-profile-cancel">Cancel</button>
+        <button class="btn btn-primary" id="edit-profile-save">Save changes</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('edit-profile-cancel').addEventListener('click', () => document.body.removeChild(overlay));
+
+  document.getElementById('edit-profile-save').addEventListener('click', async () => {
+    const firstName = document.getElementById('edit-first-name').value.trim();
+    const lastName = document.getElementById('edit-last-name').value.trim();
+    const phone = document.getElementById('edit-phone').value.trim();
+    const email = document.getElementById('edit-email').value.trim();
+    const role = document.getElementById('edit-role').value;
+    const foremanId = document.getElementById('edit-foreman').value || undefined;
+    const errorEl = document.getElementById('edit-profile-error');
+    errorEl.innerHTML = '';
+
+    if (!firstName || !lastName) {
+      errorEl.innerHTML = errorHtml('First and last name are required.');
+      return;
+    }
+    if (!phone) {
+      errorEl.innerHTML = errorHtml('Mobile number is required.');
+      return;
+    }
+
+    const saveBtn = document.getElementById('edit-profile-save');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+
+    try {
+      await api('/employee-management', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          companyId: state.activeCompanyId,
+          employeeId: employee.id,
+          firstName,
+          lastName,
+          phone,
+          email: email || null,
+          role,
+          foremanId,
+        }),
+      });
+
+      document.body.removeChild(overlay);
+      render('team', { employeeId: employee.id });
+    } catch (err) {
+      errorEl.innerHTML = errorHtml(err.message);
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save changes';
     }
   });
 }

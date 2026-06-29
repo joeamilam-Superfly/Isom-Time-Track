@@ -283,8 +283,14 @@ automatically.
   reactivated) from their drill-down page rather than deleted outright,
   since deleting would orphan their historical hours and PTO records.
   The system blocks deactivating the last active admin at a company, so
-  a company can never be left with no one able to manage it. Job
-  locations work the same way - the Admin tab has a "Job locations"
+  a company can never be left with no one able to manage it. An "Edit
+  profile" button on the same drill-down page lets admin correct an
+  existing employee's name, phone number, email, role at this company,
+  or default assigned foreman - none of this could be changed after
+  initial creation before. Changing the phone number changes their login
+  number too. Demoting the only active admin at a company to a
+  different role is blocked the same way deactivating the last admin is.
+  Job locations work the same way - the Admin tab has a "Job locations"
   section to add new ones or deactivate/reactivate existing ones, and
   deactivating a location never deletes it, since past timesheet entries
   still reference it by name.
