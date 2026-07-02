@@ -211,7 +211,14 @@ automatically.
   "Last entry today" reference (location and time range) right at the
   top, so the employee can see where they left off before typing the new
   one - this is purely informational, nothing gets pre-filled from it,
-  since gaps between segments vary too much to guess at safely.
+  since gaps between segments vary too much to guess at safely. Employees
+  can edit their own segments while in Draft, Sent back (rejected), or
+  Foreman approved status - not after full admin approval. The edit form
+  includes a date field so an employee can correct a segment that was
+  entered on the wrong day - the corrected entry resets to Draft for
+  re-approval regardless of what status it was in before. Changing the
+  date also correctly recomputes whether it's a weekend or holiday,
+  which affects overtime classification.
 - **Overlap protection**: a new or edited segment is checked against every
   other segment within a day of it (the day itself, the day before, and
   the day after, to correctly catch overnight shifts that cross midnight)

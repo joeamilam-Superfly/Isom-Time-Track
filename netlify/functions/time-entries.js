@@ -217,7 +217,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid request body' }) };
     }
 
-    const { entryId, companyId, jobLocationId, activityDescription, timeIn, timeOut, foremanId } = body;
+    const { entryId, companyId, jobLocationId, activityDescription, timeIn, timeOut, foremanId, entryDate } = body;
     if (!entryId) return { statusCode: 400, body: JSON.stringify({ error: 'entryId is required' }) };
     if (!companyId) return { statusCode: 400, body: JSON.stringify({ error: 'companyId is required' }) };
 
@@ -244,18 +244,26 @@ exports.handler = async (event) => {
       return forbidden('This is a PTO entry created from an approved PTO request. Cancel or adjust it through PTO management, not the regular hours form.');
     }
 
-    if (existing.status !== 'draft' && existing.status !== 'rejected' && myRole.role !== 'admin') {
-      return forbidden('This day has already been approved. Ask an admin to make changes.');
+    // Employees can edit draft and foreman_approved entries (not yet fully
+    // approved) - allows correcting a wrong day even after a foreman has
+    // seen it, since the corrected entry goes back to draft for re-approval.
+    // Admin can always edit regardless of status.
+    if (existing.status === 'admin_approved' && myRole.role !== 'admin') {
+      return forbidden('This entry has been fully approved. Ask an admin to make changes.');
     }
 
     const finalTimeIn = timeIn !== undefined ? timeIn : existing.time_in;
     const finalTimeOut = timeOut !== undefined ? timeOut : existing.time_out;
+    const finalEntryDate = entryDate !== undefined ? entryDate : existing.entry_date;
 
     if (!finalTimeIn || !finalTimeOut) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Both timeIn and timeOut are required' }) };
     }
 
-    const overlapResult = await checkForOverlap(existing.employee_id, companyId, existing.entry_date, finalTimeIn, finalTimeOut, entryId);
+    // Overlap check must use the FINAL date, not the original - if the
+    // employee is moving this segment to a different day, we need to check
+    // for conflicts on that new day, not the day it used to be on.
+    const overlapResult = await checkForOverlap(existing.employee_id, companyId, finalEntryDate, finalTimeIn, finalTimeOut, entryId);
     if (overlapResult && overlapResult.error) return errorResponse(overlapResult.error);
     if (overlapResult && overlapResult.overlap) {
       const o = overlapResult.overlap;
@@ -281,13 +289,26 @@ exports.handler = async (event) => {
 
     const computedHours = rawHoursForEntry(finalTimeIn, finalTimeOut);
 
+    // Recompute is_weekend and is_holiday if the date changed, since
+    // moving a segment from a weekday to a weekend (or onto a holiday)
+    // changes how the hours are classified for overtime purposes.
+    let finalIsWeekend = existing.is_weekend;
+    let finalIsHoliday = existing.is_holiday;
+    if (finalEntryDate !== existing.entry_date) {
+      finalIsWeekend = isWeekend(finalEntryDate);
+      finalIsHoliday = await isHoliday(finalEntryDate);
+    }
+
     const updateRow = {
+      entry_date: finalEntryDate,
       job_location_id: jobLocationId !== undefined ? jobLocationId : existing.job_location_id,
       foreman_id: finalForemanId,
       activity_description: activityDescription !== undefined ? activityDescription : existing.activity_description,
       time_in: finalTimeIn,
       time_out: finalTimeOut,
       hours_worked: computedHours,
+      is_weekend: finalIsWeekend,
+      is_holiday: finalIsHoliday,
       status: myRole.role === 'admin' ? existing.status : 'draft', // non-admin edits reset to draft for re-approval
       updated_at: new Date().toISOString(),
     };

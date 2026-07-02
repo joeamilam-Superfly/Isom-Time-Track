@@ -121,7 +121,7 @@ function renderDaySegments(date, segments, autoAdd) {
 }
 
 function segmentRowHtml(seg) {
-  const locked = seg.status !== 'draft' && seg.status !== 'rejected' && currentCompanyRole() === 'employee';
+  const locked = seg.status === 'admin_approved' && currentCompanyRole() === 'employee';
   const statusLabel = {
     draft: 'Draft',
     foreman_approved: 'Foreman approved',
@@ -182,6 +182,14 @@ function showSegmentFormDialog(date, existing, latestSegment) {
       <div style="font-weight:700;font-size:17px;margin-bottom:2px;">${existing ? 'Edit time segment' : 'Add a time segment'}</div>
       <div style="font-size:14px;color:var(--amber-dark);font-weight:600;margin-bottom:14px;">${formatDateLabel(date)}</div>
       ${lastEntryHtml}
+
+      ${existing ? `
+        <div class="field">
+          <label for="seg-entry-date">Date</label>
+          <input id="seg-entry-date" type="date" value="${existing.entry_date}" />
+          <div class="screen-sub">Change this if the segment was entered on the wrong day. It will go back to Draft for re-approval.</div>
+        </div>
+      ` : ''}
 
       <div class="field">
         <label for="seg-job-location-input">Job location</label>
@@ -338,6 +346,8 @@ async function saveSegment(date, existing, overlay, keepOpen) {
     const timeIn = document.getElementById('seg-time-in').value;
     const timeOut = document.getElementById('seg-time-out').value;
     const foremanId = document.getElementById('seg-foreman-select').value || null;
+    const entryDateField = document.getElementById('seg-entry-date');
+    const entryDate = entryDateField ? entryDateField.value || undefined : undefined;
 
     if (!timeIn || !timeOut) {
       errorEl.innerHTML = errorHtml('Please enter both a time in and time out.');
@@ -387,6 +397,7 @@ async function saveSegment(date, existing, overlay, keepOpen) {
           activityDescription,
           timeIn,
           timeOut,
+          entryDate,
         }),
       });
     } else {
