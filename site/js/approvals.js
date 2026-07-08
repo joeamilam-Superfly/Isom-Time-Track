@@ -153,13 +153,13 @@ async function loadScheduleGrid(weekOf) {
     ]);
 
     state.jobLocations = locationsData.locations || [];
-    renderScheduleGrid(peopleData.people || [], scheduleData.entries || [], weekDays);
+    renderScheduleGrid(peopleData.people || [], scheduleData.entries || [], weekDays, scheduleData.pendingLeave || []);
   } catch (err) {
     listEl.innerHTML = errorHtml(err.message);
   }
 }
 
-function renderScheduleGrid(people, entries, weekDays) {
+function renderScheduleGrid(people, entries, weekDays, pendingLeave) {
   const listEl = document.getElementById('approvals-list');
 
   if (people.length === 0) {
@@ -175,6 +175,21 @@ function renderScheduleGrid(people, entries, weekDays) {
     const key = `${e.employee_id}|${e.scheduled_date}`;
     if (!entriesByKey[key]) entriesByKey[key] = [];
     entriesByKey[key].push(e);
+  }
+
+  // Build a Set of 'employeeId|date' keys for days covered by a pending
+  // leave request, so the cell renderer can check in O(1) without
+  // iterating over all requests for every cell.
+  const pendingLeaveKeys = new Set();
+  for (const req of (pendingLeave || [])) {
+    let d = req.start_date;
+    while (d <= req.end_date) {
+      pendingLeaveKeys.add(`${req.employee_id}|${d}`);
+      // Advance by one day
+      const next = new Date(d + 'T00:00:00Z');
+      next.setUTCDate(next.getUTCDate() + 1);
+      d = next.toISOString().slice(0, 10);
+    }
   }
 
   const dayLabels = weekDays.map(d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' }));
@@ -196,22 +211,25 @@ function renderScheduleGrid(people, entries, weekDays) {
                 const key = `${p.id}|${d}`;
                 const dayEntries = entriesByKey[key] || [];
                 const isOff = dayEntries.some(e => e.job_locations?.name?.toUpperCase() === 'OFF');
+                const hasPendingLeave = pendingLeaveKeys.has(key);
                 const cellText = dayEntries.length > 0
                   ? dayEntries.map(e => {
                     const name = e.job_locations ? escapeHtml(e.job_locations.name) : '(no site)';
                     const deviationFlag = e.deviation_reason ? ' ⚠' : '';
                     return name + deviationFlag;
                   }).join(', ')
-                  : '';
+                  : hasPendingLeave ? '⏳ Leave pending' : '';
                 const cellBg = isOff
                   ? '#e53e3e'
-                  : dayEntries.length > 0
-                    ? 'var(--paper-dim)'
-                    : 'transparent';
-                const cellColor = isOff ? '#fff' : 'inherit';
-                const cellBorder = isOff || dayEntries.length > 0 ? 'transparent' : 'var(--line)';
+                  : hasPendingLeave && dayEntries.length === 0
+                    ? '#fef3c7'  // amber-50 equivalent for pending leave with no assignment yet
+                    : dayEntries.length > 0
+                      ? 'var(--paper-dim)'
+                      : 'transparent';
+                const cellColor = isOff ? '#fff' : hasPendingLeave && dayEntries.length === 0 ? '#92400e' : 'inherit';
+                const cellBorder = isOff || dayEntries.length > 0 ? 'transparent' : hasPendingLeave ? '#fbbf24' : 'var(--line)';
                 return `<td style="padding:6px; border-bottom:1px solid var(--line); cursor:pointer; vertical-align:top;" data-grid-cell="${p.id}|${d}">
-                  <div style="min-height:36px; padding:4px 6px; border-radius:6px; background:${cellBg}; border:1px dashed ${cellBorder}; color:${cellColor}; font-weight:${isOff ? '600' : 'normal'};">
+                  <div style="min-height:36px; padding:4px 6px; border-radius:6px; background:${cellBg}; border:1px dashed ${cellBorder}; color:${cellColor}; font-weight:${isOff ? '600' : 'normal'};" title="${hasPendingLeave ? 'Leave request pending approval' : ''}">
                     ${cellText || '<span style="color:var(--ink-soft);">+ assign</span>'}
                   </div>
                 </td>`;
@@ -312,11 +330,35 @@ function showScheduleCellDialog(employeeId, person, date, existingEntries) {
     btn.textContent = 'Adding...';
 
     try {
-      await api('/schedule', {
+      const result = await api('/schedule', {
         method: 'POST',
         body: JSON.stringify({ companyId: state.activeCompanyId, employeeId, scheduledDate: date, jobLocationId, note }),
       });
-      closeAndRefresh();
+
+      if (result.leaveConflict) {
+        btn.disabled = false;
+        btn.textContent = 'Add assignment';
+        const confirmed = confirm(
+          `${result.message}\n\nDo you still want to schedule them on this day anyway?`
+        );
+        if (confirmed) {
+          btn.disabled = true;
+          btn.textContent = 'Adding...';
+          try {
+            await api('/schedule', {
+              method: 'POST',
+              body: JSON.stringify({ companyId: state.activeCompanyId, employeeId, scheduledDate: date, jobLocationId, note, confirmOverride: true }),
+            });
+            closeAndRefresh();
+          } catch (overrideErr) {
+            errorEl.innerHTML = errorHtml(overrideErr.message);
+            btn.disabled = false;
+            btn.textContent = 'Add assignment';
+          }
+        }
+      } else {
+        closeAndRefresh();
+      }
     } catch (err) {
       errorEl.innerHTML = errorHtml(err.message);
       btn.disabled = false;
