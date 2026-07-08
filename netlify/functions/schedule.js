@@ -123,7 +123,24 @@ exports.handler = async (event) => {
 
     const { data, error } = await query;
     if (error) return errorResponse(error);
-    return { statusCode: 200, body: JSON.stringify({ entries: data }) };
+
+    // For foreman/admin viewing the full company schedule, also include
+    // pending leave requests that overlap the requested date range, so
+    // the grid can show amber warning indicators without a second fetch.
+    // Employees viewing their own schedule don't need this.
+    let pendingLeave = [];
+    if ((myRole.role === 'foreman' || myRole.role === 'admin') && params.startDate && params.endDate) {
+      const { data: leaveData } = await supabase
+        .from('pto_requests')
+        .select('id, employee_id, start_date, end_date, hours_per_day')
+        .eq('company_id', companyId)
+        .eq('status', 'pending')
+        .lte('start_date', params.endDate)
+        .gte('end_date', params.startDate);
+      pendingLeave = leaveData || [];
+    }
+
+    return { statusCode: 200, body: JSON.stringify({ entries: data, pendingLeave }) };
   }
 
   // ---------------- POST: create a schedule entry (assignment) ----------------
@@ -148,6 +165,33 @@ exports.handler = async (event) => {
     const targetRole = await resolveCompanyRole(employeeId, companyId, false);
     if (!targetRole) {
       return { statusCode: 400, body: JSON.stringify({ error: 'That employee does not belong to this company' }) };
+    }
+
+    // Check for approved leave on this date before saving the assignment,
+    // so the foreman is warned rather than accidentally scheduling someone
+    // who has already-approved time off. Uses a confirmOverride flag so
+    // the foreman can still save if they genuinely intend to (e.g. the
+    // leave was approved in error and hasn't been revoked yet).
+    if (!body.confirmOverride) {
+      const { data: leaveConflict } = await supabase
+        .from('time_entries')
+        .select('entry_date, hours_worked')
+        .eq('employee_id', employeeId)
+        .eq('company_id', companyId)
+        .eq('entry_date', scheduledDate)
+        .eq('hours_type', 'pto')
+        .eq('status', 'admin_approved')
+        .maybeSingle();
+
+      if (leaveConflict) {
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            leaveConflict: true,
+            message: `This employee has approved leave on ${scheduledDate}.`,
+          }),
+        };
+      }
     }
 
     if (jobLocationId) {
