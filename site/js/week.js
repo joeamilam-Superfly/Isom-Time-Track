@@ -148,11 +148,7 @@ function topbarHtml() {
   return `
     <div class="topbar">
       <div class="mark">
-        <div class="mark-box">I</div>
-        <div>
-          <span class="mark-text">${company ? escapeHtml(company.name) : 'Timesheet'}</span>
-          <span class="mark-sub">Weekly Timesheet</span>
-        </div>
+        <img src="/images/logo.png" alt="Isom Electric" style="height:32px; width:auto; display:block;" />
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
         <button class="user-chip" id="help-btn" style="border:none;" aria-label="Help">&#128172;</button>
