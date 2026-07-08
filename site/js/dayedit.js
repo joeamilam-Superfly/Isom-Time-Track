@@ -28,6 +28,9 @@ async function renderDayEdit(opts) {
     ]);
     state.jobLocations = locationsData.locations || [];
     state.foremen = foremenData.foremen || [];
+    state.todayScheduleEntries = scheduleData.entries || [];
+    state.todayTimeEntries = entriesData.entries || [];
+    state.currentDayDate = date;
     renderDaySchedule(scheduleData.entries || []);
     renderDaySegments(date, entriesData.entries || [], autoAdd);
   } catch (err) {
@@ -43,15 +46,63 @@ function renderDaySchedule(scheduleEntries) {
   }
 
   el.innerHTML = `
-    <div class="banner banner-info" style="margin-bottom:14px;">
-      <strong>Scheduled today:</strong>
+    <div style="margin-bottom:14px;">
+      <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-soft); margin-bottom:6px;">Scheduled today &mdash; tap to log time</div>
       ${scheduleEntries.map(e => {
         const loc = e.job_locations ? escapeHtml(e.job_locations.name) : 'No location set';
         const note = e.note ? ` &mdash; ${escapeHtml(e.note)}` : '';
-        return `${loc}${note}`;
-      }).join('; ')}
+        const deviationNote = e.deviation_reason ? `<div style="font-size:12px; color:var(--amber-dark); margin-top:4px;">Reason not attended: ${escapeHtml(e.deviation_reason)}</div>` : '';
+        return `
+          <div class="day-stub" data-schedule-entry="${e.id}" data-loc-id="${e.job_location_id || ''}" data-loc-name="${e.job_locations ? escapeHtml(e.job_locations.name) : ''}" style="cursor:pointer; margin-bottom:8px;">
+            <div class="day-stub-perf" style="background:var(--amber);"></div>
+            <div class="day-stub-body">
+              <div class="day-stub-top">
+                <div class="day-stub-date">${loc}${note}</div>
+                <div style="font-size:12px; color:var(--ink-soft);">Tap to log time</div>
+              </div>
+              ${deviationNote}
+            </div>
+          </div>
+        `;
+      }).join('')}
     </div>
   `;
+
+  // Attach click handlers after rendering
+  el.querySelectorAll('[data-schedule-entry]').forEach(card => {
+    card.addEventListener('click', () => {
+      const locId = card.getAttribute('data-loc-id');
+      const locName = card.getAttribute('data-loc-name');
+      // Open the add-segment form with this location pre-selected
+      const date = root.querySelector('.screen-title') ? getCurrentDateFromScreen() : todayStr();
+      showSegmentFormDialogWithLocation(date, locId, locName);
+    });
+  });
+}
+
+// Gets the current date being viewed from the day-edit screen's title
+// element - needed since renderDaySchedule doesn't have direct access to
+// the date variable from renderDayEdit's scope.
+function getCurrentDateFromScreen() {
+  // date is stored on state when the day-edit screen loads
+  return state.currentDayDate || todayStr();
+}
+
+// Opens the segment form with a specific job location pre-selected,
+// used when an employee taps a scheduled location card to log time
+// against it directly, rather than having to find the location themselves.
+function showSegmentFormDialogWithLocation(date, locId, locName) {
+  // Pre-select the location before opening the dialog
+  selectedJobLocationId = locId || null;
+  const latestSeg = findLatestSegment((state.todayTimeEntries || []).filter(e => e.hours_type !== 'pto'));
+  const dialog = showSegmentFormDialog(date, null, latestSeg);
+  // After the dialog opens, set the location input field to the scheduled location
+  // so the employee sees it pre-filled without having to search
+  setTimeout(() => {
+    const input = document.getElementById('seg-job-location-input');
+    if (input && locName) input.value = locName;
+  }, 0);
+  return dialog;
 }
 
 let selectedJobLocationId = null;
@@ -419,6 +470,61 @@ async function saveSegment(date, existing, overlay, keepOpen) {
 
     document.body.removeChild(overlay);
 
+    // After a successful save, check whether a deviation reason is needed:
+    // if the employee has scheduled locations today, and NONE of those
+    // locations have any time logged against them (including what was just
+    // saved), and the segment just saved was at a DIFFERENT location than
+    // any scheduled one. If all three conditions are true, prompt for a
+    // reason before proceeding - this is a blocking prompt per explicit
+    // design decision.
+    const scheduleEntries = state.todayScheduleEntries || [];
+    if (scheduleEntries.length > 0 && jobLocationId) {
+      const scheduledLocationIds = new Set(
+        scheduleEntries.map(e => e.job_location_id).filter(Boolean)
+      );
+      const savedAtScheduledLocation = scheduledLocationIds.has(jobLocationId);
+
+      if (!savedAtScheduledLocation) {
+        // Fetch fresh time entries to check if any scheduled location
+        // now has time logged against it (including this just-saved one)
+        try {
+          const freshEntries = await api(withCompany(
+            `/time-entries?employeeId=${state.employee.id}&startDate=${state.currentDayDate}&endDate=${state.currentDayDate}`
+          ));
+          const loggedLocationIds = new Set(
+            (freshEntries.entries || []).map(e => e.job_location_id).filter(Boolean)
+          );
+          const anyScheduledLocationLogged = [...scheduledLocationIds].some(id => loggedLocationIds.has(id));
+
+          if (!anyScheduledLocationLogged) {
+            // Need a reason - find the schedule entries that weren't attended
+            const unattendedEntries = scheduleEntries.filter(
+              e => e.job_location_id && !loggedLocationIds.has(e.job_location_id) && !e.deviation_reason
+            );
+            if (unattendedEntries.length > 0) {
+              const reason = await showDeviationReasonPrompt(unattendedEntries);
+              if (reason) {
+                // Store the reason on each unattended schedule entry
+                await Promise.all(unattendedEntries.map(e =>
+                  api('/schedule', {
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                      companyId: state.activeCompanyId,
+                      scheduleEntryId: e.id,
+                      deviationReason: reason,
+                    }),
+                  })
+                ));
+              }
+            }
+          }
+        } catch (err) {
+          // Non-fatal - don't block the save if the deviation check itself fails
+          console.error('Deviation check failed:', err);
+        }
+      }
+    }
+
     if (keepOpen) {
       // Don't navigate back to the day-edit screen at all - go straight
       // into a fresh empty form for the next segment, since the whole
@@ -488,6 +594,49 @@ function showLocationConfirmDialog(typedName, suggestions) {
     overlay.querySelector('#cancel-loc-dialog').addEventListener('click', () => {
       document.body.removeChild(overlay);
       resolve({ cancelled: true });
+    });
+  });
+}
+
+// Blocking prompt that asks the employee why they didn't go to their
+// scheduled location. Returns a Promise that resolves to the reason
+// string once they submit, or null if they somehow dismiss it.
+// Per explicit design decision this is blocking - the reason must be
+// entered before the save flow completes and the screen refreshes.
+function showDeviationReasonPrompt(unattendedEntries) {
+  return new Promise((resolve) => {
+    const locationNames = unattendedEntries
+      .map(e => e.job_locations ? escapeHtml(e.job_locations.name) : 'scheduled location')
+      .join(', ');
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.7);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;">
+        <div style="font-weight:700;font-size:17px;margin-bottom:6px;">You weren't at your scheduled location</div>
+        <div class="screen-sub" style="margin-bottom:14px;">
+          You were scheduled at <strong>${locationNames}</strong> but logged time elsewhere.
+          Please explain why before continuing.
+        </div>
+        <div class="field">
+          <label for="deviation-reason-input">Reason</label>
+          <textarea id="deviation-reason-input" rows="3" placeholder="e.g. Job was cancelled, sent to a different site by supervisor..."></textarea>
+        </div>
+        <div id="deviation-reason-error"></div>
+        <button class="btn btn-primary" id="deviation-reason-submit" style="margin-top:8px; width:100%;">Submit reason</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    document.getElementById('deviation-reason-submit').addEventListener('click', () => {
+      const reason = document.getElementById('deviation-reason-input').value.trim();
+      const errorEl = document.getElementById('deviation-reason-error');
+      if (!reason) {
+        errorEl.innerHTML = errorHtml('Please enter a reason before continuing.');
+        return;
+      }
+      document.body.removeChild(overlay);
+      resolve(reason);
     });
   });
 }
