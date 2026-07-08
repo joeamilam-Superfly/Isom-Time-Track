@@ -180,7 +180,7 @@ function renderScheduleGrid(people, entries, weekDays) {
   const dayLabels = weekDays.map(d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' }));
 
   listEl.innerHTML = `
-    <div style="overflow-x:auto;">
+    <div class="schedule-grid-fullwidth">
       <table style="width:100%; border-collapse:collapse; font-size:13px;">
         <thead>
           <tr>
@@ -195,6 +195,7 @@ function renderScheduleGrid(people, entries, weekDays) {
               ${weekDays.map(d => {
                 const key = `${p.id}|${d}`;
                 const dayEntries = entriesByKey[key] || [];
+                const isOff = dayEntries.some(e => e.job_locations?.name?.toUpperCase() === 'OFF');
                 const cellText = dayEntries.length > 0
                   ? dayEntries.map(e => {
                     const name = e.job_locations ? escapeHtml(e.job_locations.name) : '(no site)';
@@ -202,8 +203,15 @@ function renderScheduleGrid(people, entries, weekDays) {
                     return name + deviationFlag;
                   }).join(', ')
                   : '';
+                const cellBg = isOff
+                  ? '#e53e3e'
+                  : dayEntries.length > 0
+                    ? 'var(--paper-dim)'
+                    : 'transparent';
+                const cellColor = isOff ? '#fff' : 'inherit';
+                const cellBorder = isOff || dayEntries.length > 0 ? 'transparent' : 'var(--line)';
                 return `<td style="padding:6px; border-bottom:1px solid var(--line); cursor:pointer; vertical-align:top;" data-grid-cell="${p.id}|${d}">
-                  <div style="min-height:36px; padding:4px 6px; border-radius:6px; background:${dayEntries.length > 0 ? 'var(--paper-dim)' : 'transparent'}; border:1px dashed ${dayEntries.length > 0 ? 'transparent' : 'var(--line)'};">
+                  <div style="min-height:36px; padding:4px 6px; border-radius:6px; background:${cellBg}; border:1px dashed ${cellBorder}; color:${cellColor}; font-weight:${isOff ? '600' : 'normal'};">
                     ${cellText || '<span style="color:var(--ink-soft);">+ assign</span>'}
                   </div>
                 </td>`;
