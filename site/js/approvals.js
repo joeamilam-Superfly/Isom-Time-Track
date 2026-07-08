@@ -195,7 +195,11 @@ function renderScheduleGrid(people, entries, weekDays) {
                 const key = `${p.id}|${d}`;
                 const dayEntries = entriesByKey[key] || [];
                 const cellText = dayEntries.length > 0
-                  ? dayEntries.map(e => e.job_locations ? escapeHtml(e.job_locations.name) : '(no site)').join(', ')
+                  ? dayEntries.map(e => {
+                    const name = e.job_locations ? escapeHtml(e.job_locations.name) : '(no site)';
+                    const deviationFlag = e.deviation_reason ? ' ⚠' : '';
+                    return name + deviationFlag;
+                  }).join(', ')
                   : '';
                 return `<td style="padding:6px; border-bottom:1px solid var(--line); cursor:pointer; vertical-align:top;" data-grid-cell="${p.id}|${d}">
                   <div style="min-height:36px; padding:4px 6px; border-radius:6px; background:${dayEntries.length > 0 ? 'var(--paper-dim)' : 'transparent'}; border:1px dashed ${dayEntries.length > 0 ? 'transparent' : 'var(--line)'};">
@@ -239,6 +243,7 @@ function showScheduleCellDialog(employeeId, person, date, existingEntries) {
               <div>
                 <div class="employee-name">${e.job_locations ? escapeHtml(e.job_locations.name) : 'No location set'}</div>
                 ${e.note ? `<div class="employee-meta">${escapeHtml(e.note)}</div>` : ''}
+                ${e.deviation_reason ? `<div class="employee-meta" style="color:var(--amber-dark);">Not attended &mdash; ${escapeHtml(e.deviation_reason)}</div>` : ''}
               </div>
               <button class="btn btn-sm btn-ghost" data-remove-sched="${e.id}">Remove</button>
             </div>
