@@ -16,7 +16,7 @@ async function renderApprovals(opts) {
         <button class="nav-tab ${subView === 'approvals' ? 'active' : ''}" data-subview="approvals">Approvals</button>
         <button class="nav-tab ${subView === 'schedule' ? 'active' : ''}" data-subview="schedule">Schedule</button>
       </div>
-      ${subView === 'schedule' ? weekJumpDropdownHtml(weekOf) : ''}
+      ${subView === 'schedule' ? weekJumpDropdownHtml(weekOf, 0, 6) : weekJumpDropdownHtml(weekOf, 8, 1)}
       <div id="approvals-list">${loadingHtml()}</div>
     </main>
   `;
@@ -72,26 +72,30 @@ function renderApprovalsList(summaries) {
   // exclude the viewer's own row if they're a foreman so they're not approving themselves
   const others = summaries.filter(s => s.employeeId !== state.employee.id);
 
-  listEl.innerHTML = others.map(s => {
+  // Store the summaries on state so the detail screen can access them
+  // without an extra API call - all the day/segment data is already here.
+  state.approvalSummaries = others;
+
+  listEl.innerHTML = others.map((s, idx) => {
     const allSegments = s.days.flatMap(day => day.segments);
     const workedSegments = allSegments.filter(seg => seg.hoursWorked > 0);
     const allDraft = workedSegments.length > 0 && workedSegments.every(seg => seg.status === 'draft' || seg.status === 'rejected');
     const allForemanApproved = workedSegments.length > 0 && workedSegments.every(seg => seg.status === 'foreman_approved');
     const allAdminApproved = workedSegments.length > 0 && workedSegments.every(seg => seg.status === 'admin_approved');
 
-    let actionHtml = '';
-    if (myRole === 'foreman' && allDraft) {
-      actionHtml = `<button class="btn btn-sm btn-primary" data-foreman-approve="${s.employeeId}">Approve week</button>`;
-    } else if (myRole === 'admin' && allForemanApproved) {
-      actionHtml = `<button class="btn btn-sm btn-primary" data-admin-approve="${s.employeeId}">Final approve</button>`;
-    } else if (allAdminApproved) {
-      actionHtml = `<span class="status-pill status-admin_approved">Fully approved</span>`;
-    } else if (!allDraft && !allForemanApproved) {
-      actionHtml = `<span class="status-pill status-foreman_approved">Awaiting foreman</span>`;
+    let statusHtml = '';
+    if (allAdminApproved) {
+      statusHtml = `<span class="status-pill status-admin_approved">Fully approved</span>`;
+    } else if (allForemanApproved) {
+      statusHtml = `<span class="status-pill status-foreman_approved">Awaiting final approval</span>`;
+    } else if (allDraft) {
+      statusHtml = `<span class="status-pill status-draft">Awaiting foreman</span>`;
+    } else if (workedSegments.length > 0) {
+      statusHtml = `<span class="status-pill status-draft">Mixed status</span>`;
     }
 
     return `
-      <div class="day-stub">
+      <div class="day-stub" data-approval-idx="${idx}" style="cursor:pointer;">
         <div class="day-stub-perf"></div>
         <div class="day-stub-body">
           <div class="day-stub-top">
@@ -101,34 +105,31 @@ function renderApprovalsList(summaries) {
           <div class="day-stub-meta">
             Reg ${s.totals.regularHoursWorked.toFixed(2)} &middot; OT ${s.totals.overtimeHoursWorked.toFixed(2)} &middot; Hol ${s.totals.holidayHours.toFixed(2)} &middot; Leave ${s.totals.ptoHours.toFixed(2)}
           </div>
-          <div style="margin-top:10px;">${actionHtml}</div>
+          <div style="margin-top:6px;">${statusHtml}</div>
+          <div style="font-size:12px; color:var(--ink-soft); margin-top:4px;">Tap to review and approve &rarr;</div>
         </div>
       </div>
     `;
   }).join('');
 
-  listEl.querySelectorAll('[data-foreman-approve]').forEach(btn => {
-    btn.addEventListener('click', () => approveEmployee(btn.getAttribute('data-foreman-approve'), 'foreman_approve'));
-  });
-  listEl.querySelectorAll('[data-admin-approve]').forEach(btn => {
-    btn.addEventListener('click', () => approveEmployee(btn.getAttribute('data-admin-approve'), 'admin_approve'));
+  listEl.querySelectorAll('[data-approval-idx]').forEach(card => {
+    card.addEventListener('click', () => {
+      const idx = parseInt(card.getAttribute('data-approval-idx'));
+      render('approvalDetail', { summary: state.approvalSummaries[idx] });
+    });
   });
 }
 
 async function approveEmployee(employeeId, action) {
-  try {
-    const entriesData = await api(withCompany(`/time-entries?employeeId=${employeeId}&startDate=${state.currentWeekOf}&endDate=${addDaysStr(state.currentWeekOf, 6)}`));
-    const entryIds = (entriesData.entries || []).filter(e => e.hours_worked > 0).map(e => e.id);
-    if (entryIds.length === 0) return;
+  const entriesData = await api(withCompany(`/time-entries?employeeId=${employeeId}&startDate=${state.currentWeekOf}&endDate=${addDaysStr(state.currentWeekOf, 6)}`));
+  const entryIds = (entriesData.entries || []).filter(e => e.hours_worked > 0).map(e => e.id);
+  if (entryIds.length === 0) return;
 
-    await api('/approvals', {
-      method: 'POST',
-      body: JSON.stringify({ companyId: state.activeCompanyId, action, entryIds }),
-    });
-    render('approvals');
-  } catch (err) {
-    alert(err.message);
-  }
+  await api('/approvals', {
+    method: 'POST',
+    body: JSON.stringify({ companyId: state.activeCompanyId, action, entryIds }),
+  });
+  render('approvals');
 }
 
 // ---------------- Weekly scheduling grid ----------------
@@ -325,18 +326,26 @@ function showScheduleCellDialog(employeeId, person, date, existingEntries) {
 // jumps around rather than shifting under them. Not used in the
 // Approvals sub-view, since reviewing/approving hours that haven't been
 // worked yet doesn't apply there.
-function weekJumpDropdownHtml(currentWeekOf) {
+// weeksBack: how many weeks before today to include (Approvals needs past weeks)
+// weeksForward: how many weeks after today to include (Schedule needs future weeks)
+function weekJumpDropdownHtml(currentWeekOf, weeksBack = 0, weeksForward = 6) {
   const baseWeek = sundayOf(todayStr());
   const options = [];
-  for (let i = 0; i < 6; i++) {
+
+  // Past weeks first (oldest to newest)
+  for (let i = weeksBack; i > 0; i--) {
+    options.push(addDaysStr(baseWeek, -i * 7));
+  }
+  // Current week
+  options.push(baseWeek);
+  // Future weeks
+  for (let i = 1; i <= weeksForward; i++) {
     options.push(addDaysStr(baseWeek, i * 7));
   }
 
-  // If the currently-selected week isn't in the normal forward-looking
-  // range (e.g. reached by navigating backward in Approvals before
-  // switching to the Schedule sub-view), add it anyway so the dropdown
-  // accurately reflects what's actually showing, rather than silently
-  // defaulting to whatever option happens to render first.
+  // If the currently-selected week isn't in the list (e.g. navigated
+  // further back than the dropdown covers), add it so the dropdown
+  // accurately reflects what's actually showing.
   if (!options.includes(currentWeekOf)) {
     options.unshift(currentWeekOf);
   }
@@ -349,4 +358,109 @@ function weekJumpDropdownHtml(currentWeekOf) {
       </select>
     </div>
   `;
+}
+
+// ---------------- Approval Detail Screen ----------------
+// Shows every day and segment for one employee in the selected week,
+// so a foreman or admin can review the actual detail before approving,
+// rather than only seeing aggregated totals. The approve button is fixed
+// at the bottom of the screen so it's always reachable after scrolling
+// through the entries.
+
+async function renderApprovalDetail(opts) {
+  const s = opts.summary;
+  if (!s) { render('approvals'); return; }
+
+  const myRole = currentCompanyRole();
+  const allSegments = s.days.flatMap(day => day.segments);
+  const workedSegments = allSegments.filter(seg => seg.hoursWorked > 0);
+  const allDraft = workedSegments.length > 0 && workedSegments.every(seg => seg.status === 'draft' || seg.status === 'rejected');
+  const allForemanApproved = workedSegments.length > 0 && workedSegments.every(seg => seg.status === 'foreman_approved');
+
+  const canForemanApprove = myRole === 'foreman' && allDraft;
+  const canAdminApprove = myRole === 'admin' && allForemanApproved;
+  const canApprove = canForemanApprove || canAdminApprove;
+
+  const statusLabel = {
+    draft: 'Draft',
+    foreman_approved: 'Foreman approved',
+    admin_approved: 'Approved',
+    rejected: 'Sent back',
+  };
+
+  const daysHtml = s.days.length === 0
+    ? `<div class="empty-state" style="padding:30px;">No hours logged this week.</div>`
+    : s.days.map(day => `
+        <div style="margin-bottom:20px;">
+          <div style="font-weight:600; font-size:14px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">${formatDateLabel(day.date)}</div>
+          ${day.segments.filter(seg => seg.hoursWorked > 0).map(seg => `
+            <div class="day-stub" style="margin-bottom:8px;">
+              <div class="day-stub-perf"></div>
+              <div class="day-stub-body">
+                <div class="day-stub-top">
+                  <div class="day-stub-date">${seg.jobLocation ? escapeHtml(seg.jobLocation) : 'No location'}</div>
+                  <div class="day-stub-hours">${Number(seg.hoursWorked).toFixed(2)}h</div>
+                </div>
+                <div class="day-stub-meta">
+                  ${seg.timeIn ? `<span>${seg.timeIn.slice(0,5)} &ndash; ${seg.timeOut ? seg.timeOut.slice(0,5) : '?'}</span>` : ''}
+                  ${seg.activityDescription ? `<span>${escapeHtml(seg.activityDescription)}</span>` : ''}
+                </div>
+                <span class="status-pill status-${seg.status}">${statusLabel[seg.status] || seg.status}</span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `).join('');
+
+  root.innerHTML = `
+    ${topbarHtml()}
+    <main style="padding-bottom:80px;">
+      <div class="screen-title">${escapeHtml(s.employeeName || 'Unknown')}</div>
+      <div class="screen-sub">${formatWeekRange(state.currentWeekOf)}</div>
+
+      <div class="summary-card" style="margin-bottom:20px;">
+        <div class="summary-row"><span class="label">Regular</span><span class="value">${s.totals.regularHoursWorked.toFixed(2)}h</span></div>
+        <div class="summary-row"><span class="label">Overtime</span><span class="value">${s.totals.overtimeHoursWorked.toFixed(2)}h</span></div>
+        <div class="summary-row"><span class="label">Holiday</span><span class="value">${s.totals.holidayHours.toFixed(2)}h</span></div>
+        <div class="summary-row"><span class="label">Leave</span><span class="value">${s.totals.ptoHours.toFixed(2)}h</span></div>
+        <div class="summary-row total"><span class="label">Total</span><span class="value">${s.totals.weeklyHours.toFixed(2)}h</span></div>
+      </div>
+
+      ${daysHtml}
+    </main>
+    <div class="bottom-bar" style="display:flex; gap:10px;">
+      <button class="btn btn-ghost" id="approval-back-btn" style="flex:1;">&larr; Back</button>
+      ${canApprove ? `
+        <button class="btn btn-amber" id="approval-approve-btn" style="flex:2;">
+          ${canForemanApprove ? 'Approve week' : 'Final approve'}
+        </button>
+      ` : `
+        <div style="flex:2; display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--ink-soft);">
+          ${workedSegments.length === 0 ? 'No hours to approve' :
+            allForemanApproved && myRole === 'foreman' ? 'Awaiting final admin approval' :
+            allDraft && myRole === 'admin' ? 'Awaiting foreman approval first' :
+            'Fully approved'}
+        </div>
+      `}
+    </div>
+  `;
+
+  attachTopbarHandlers();
+
+  document.getElementById('approval-back-btn').addEventListener('click', () => render('approvals'));
+
+  if (canApprove) {
+    document.getElementById('approval-approve-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('approval-approve-btn');
+      btn.disabled = true;
+      btn.textContent = 'Approving...';
+      try {
+        await approveEmployee(s.employeeId, canForemanApprove ? 'foreman_approve' : 'admin_approve');
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = canForemanApprove ? 'Approve week' : 'Final approve';
+      }
+    });
+  }
 }
