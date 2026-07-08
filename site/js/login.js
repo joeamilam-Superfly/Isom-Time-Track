@@ -2,11 +2,7 @@ function renderLogin() {
   root.innerHTML = `
     <div class="topbar" style="justify-content:center;">
       <div class="mark">
-        <div class="mark-box">I</div>
-        <div>
-          <span class="mark-text">ISOM Electric</span>
-          <span class="mark-sub">Weekly Timesheet</span>
-        </div>
+        <img src="/images/logo.png" alt="Isom Electric" style="height:36px; width:auto; display:block;" />
       </div>
     </div>
     <main>
