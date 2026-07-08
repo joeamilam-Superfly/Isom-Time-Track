@@ -450,3 +450,30 @@ main {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* Schedule grid desktop breakout - on viewports wider than 900px, the
+   scheduling grid escapes the app's 480px max-width container and uses
+   the full browser window. The calc() technique works because #app is
+   centered with margin:0 auto, so the offset is always symmetric. */
+@media (min-width: 900px) {
+  .schedule-grid-fullwidth {
+    width: 100vw;
+    margin-left: calc(-50vw + 50%);
+    margin-right: calc(-50vw + 50%);
+    padding: 0 24px;
+    box-sizing: border-box;
+    overflow-x: auto;
+  }
+
+  .schedule-grid-fullwidth table {
+    width: 100%;
+    min-width: 700px;
+    table-layout: fixed;
+  }
+
+  /* Name column fixed width, day columns share remaining space evenly */
+  .schedule-grid-fullwidth th:first-child,
+  .schedule-grid-fullwidth td:first-child {
+    width: 160px;
+  }
+}
