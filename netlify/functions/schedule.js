@@ -107,7 +107,7 @@ exports.handler = async (event) => {
 
     let query = supabase
       .from('schedule_entries')
-      .select('id, employee_id, scheduled_date, job_location_id, note, job_locations(name)')
+      .select('id, employee_id, scheduled_date, job_location_id, note, deviation_reason, job_locations(name)')
       .eq('company_id', companyId)
       .order('scheduled_date', { ascending: true });
 
@@ -295,6 +295,53 @@ exports.handler = async (event) => {
     });
     if (logResult.error) console.error('Failed to log schedule change:', logResult.error);
 
+    return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+  }
+
+  // ---------------- PATCH: record a deviation reason ----------------
+  // Called when an employee logs time at a different location than they
+  // were scheduled - stores their explanation on the schedule_entries row
+  // so foreman/admin can see it when reviewing. Only the employee the
+  // entry belongs to can submit this - not a foreman on their behalf.
+  if (event.httpMethod === 'PATCH') {
+    let body;
+    try {
+      body = JSON.parse(event.body || '{}');
+    } catch {
+      return { statusCode: 400, body: JSON.stringify({ error: 'Invalid request body' }) };
+    }
+
+    const { companyId, scheduleEntryId, deviationReason } = body;
+    if (!companyId) return { statusCode: 400, body: JSON.stringify({ error: 'companyId is required' }) };
+    if (!scheduleEntryId) return { statusCode: 400, body: JSON.stringify({ error: 'scheduleEntryId is required' }) };
+    if (!deviationReason || !deviationReason.trim()) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'A reason is required' }) };
+    }
+
+    const myRole = await resolveCompanyRole(auth.employeeId, companyId, auth.superAdmin);
+    if (!myRole) return forbidden('You do not have access to this company');
+
+    const { data: entry, error: fetchError } = await supabase
+      .from('schedule_entries')
+      .select('employee_id, company_id')
+      .eq('id', scheduleEntryId)
+      .maybeSingle();
+
+    if (fetchError) return errorResponse(fetchError);
+    if (!entry) return { statusCode: 404, body: JSON.stringify({ error: 'Schedule entry not found' }) };
+    if (entry.company_id !== companyId) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'This entry does not belong to the specified company' }) };
+    }
+    if (entry.employee_id !== auth.employeeId && myRole.role !== 'admin') {
+      return forbidden('You can only submit a deviation reason for your own schedule entries');
+    }
+
+    const { error } = await supabase
+      .from('schedule_entries')
+      .update({ deviation_reason: deviationReason.trim(), updated_at: new Date().toISOString() })
+      .eq('id', scheduleEntryId);
+
+    if (error) return errorResponse(error);
     return { statusCode: 200, body: JSON.stringify({ ok: true }) };
   }
 
