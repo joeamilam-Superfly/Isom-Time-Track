@@ -45,35 +45,52 @@ function renderDaySchedule(scheduleEntries) {
     return;
   }
 
+  // Separate OFF entries from real assignments - OFF entries are shown
+  // as a non-tappable red banner, not a clickable "log time here" card.
+  const offEntries = scheduleEntries.filter(e => e.job_locations?.name?.toUpperCase() === 'OFF');
+  const workEntries = scheduleEntries.filter(e => e.job_locations?.name?.toUpperCase() !== 'OFF');
+
+  const offBannerHtml = offEntries.length > 0 ? `
+    <div style="background:#e53e3e; color:#fff; border-radius:8px; padding:10px 14px; margin-bottom:8px; font-weight:600;">
+      OFF today
+    </div>
+  ` : '';
+
+  const workCardsHtml = workEntries.map(e => {
+    const loc = e.job_locations ? escapeHtml(e.job_locations.name) : 'No location set';
+    const note = e.note ? ` &mdash; ${escapeHtml(e.note)}` : '';
+    const deviationNote = e.deviation_reason ? `<div style="font-size:12px; color:var(--amber-dark); margin-top:4px;">Reason not attended: ${escapeHtml(e.deviation_reason)}</div>` : '';
+    return `
+      <div class="day-stub" data-schedule-entry="${e.id}" data-loc-id="${e.job_location_id || ''}" data-loc-name="${e.job_locations ? escapeHtml(e.job_locations.name) : ''}" style="cursor:pointer; margin-bottom:8px;">
+        <div class="day-stub-perf" style="background:var(--amber);"></div>
+        <div class="day-stub-body">
+          <div class="day-stub-top">
+            <div class="day-stub-date">${loc}${note}</div>
+            <div style="font-size:12px; color:var(--ink-soft);">Tap to log time</div>
+          </div>
+          ${deviationNote}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  if (!offBannerHtml && !workCardsHtml) {
+    el.innerHTML = '';
+    return;
+  }
+
   el.innerHTML = `
     <div style="margin-bottom:14px;">
-      <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-soft); margin-bottom:6px;">Scheduled today &mdash; tap to log time</div>
-      ${scheduleEntries.map(e => {
-        const loc = e.job_locations ? escapeHtml(e.job_locations.name) : 'No location set';
-        const note = e.note ? ` &mdash; ${escapeHtml(e.note)}` : '';
-        const deviationNote = e.deviation_reason ? `<div style="font-size:12px; color:var(--amber-dark); margin-top:4px;">Reason not attended: ${escapeHtml(e.deviation_reason)}</div>` : '';
-        return `
-          <div class="day-stub" data-schedule-entry="${e.id}" data-loc-id="${e.job_location_id || ''}" data-loc-name="${e.job_locations ? escapeHtml(e.job_locations.name) : ''}" style="cursor:pointer; margin-bottom:8px;">
-            <div class="day-stub-perf" style="background:var(--amber);"></div>
-            <div class="day-stub-body">
-              <div class="day-stub-top">
-                <div class="day-stub-date">${loc}${note}</div>
-                <div style="font-size:12px; color:var(--ink-soft);">Tap to log time</div>
-              </div>
-              ${deviationNote}
-            </div>
-          </div>
-        `;
-      }).join('')}
+      ${offBannerHtml ? offBannerHtml : `<div style="font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-soft); margin-bottom:6px;">Scheduled today &mdash; tap to log time</div>`}
+      ${workCardsHtml}
     </div>
   `;
 
-  // Attach click handlers after rendering
+  // Only attach click handlers to work entries, not OFF entries
   el.querySelectorAll('[data-schedule-entry]').forEach(card => {
     card.addEventListener('click', () => {
       const locId = card.getAttribute('data-loc-id');
       const locName = card.getAttribute('data-loc-name');
-      // Open the add-segment form with this location pre-selected
       const date = root.querySelector('.screen-title') ? getCurrentDateFromScreen() : todayStr();
       showSegmentFormDialogWithLocation(date, locId, locName);
     });
@@ -478,9 +495,11 @@ async function saveSegment(date, existing, overlay, keepOpen) {
     // reason before proceeding - this is a blocking prompt per explicit
     // design decision.
     const scheduleEntries = state.todayScheduleEntries || [];
-    if (scheduleEntries.length > 0 && jobLocationId) {
+    // Only check deviation against real work assignments, not OFF entries
+    const workScheduleEntries = scheduleEntries.filter(e => e.job_locations?.name?.toUpperCase() !== 'OFF');
+    if (workScheduleEntries.length > 0 && jobLocationId) {
       const scheduledLocationIds = new Set(
-        scheduleEntries.map(e => e.job_location_id).filter(Boolean)
+        workScheduleEntries.map(e => e.job_location_id).filter(Boolean)
       );
       const savedAtScheduledLocation = scheduledLocationIds.has(jobLocationId);
 
@@ -497,8 +516,8 @@ async function saveSegment(date, existing, overlay, keepOpen) {
           const anyScheduledLocationLogged = [...scheduledLocationIds].some(id => loggedLocationIds.has(id));
 
           if (!anyScheduledLocationLogged) {
-            // Need a reason - find the schedule entries that weren't attended
-            const unattendedEntries = scheduleEntries.filter(
+            // Need a reason - find the work schedule entries that weren't attended
+            const unattendedEntries = workScheduleEntries.filter(
               e => e.job_location_id && !loggedLocationIds.has(e.job_location_id) && !e.deviation_reason
             );
             if (unattendedEntries.length > 0) {
