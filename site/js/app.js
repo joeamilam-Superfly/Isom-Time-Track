@@ -139,6 +139,7 @@ function render(view, opts) {
   if (view === 'week') return renderWeek(opts || {});
   if (view === 'dayEdit') return renderDayEdit(opts || {});
   if (view === 'approvals') return renderApprovals(opts || {});
+  if (view === 'approvalDetail') return renderApprovalDetail(opts || {});
   if (view === 'admin') return renderAdmin(opts || {});
   if (view === 'timeoff') return renderTimeOff(opts || {});
   if (view === 'team') return renderTeam(opts || {});
