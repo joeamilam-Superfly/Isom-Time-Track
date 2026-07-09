@@ -48,7 +48,7 @@ exports.handler = async (event) => {
     if (myRole.role === 'admin') {
       const { data: rawRoleRow, error: roleRowError } = await supabase
         .from('employee_company_roles')
-        .select('role, foreman_id, active')
+        .select('role, foreman_id, employment_start_date, active')
         .eq('employee_id', targetId)
         .eq('company_id', companyId)
         .maybeSingle();
@@ -92,6 +92,7 @@ exports.handler = async (event) => {
       .from('pto_balances')
       .select('*')
       .eq('employee_id', targetId)
+      .eq('company_id', companyId)
       .eq('year', currentYear)
       .maybeSingle();
 
@@ -117,6 +118,7 @@ exports.handler = async (event) => {
           role: targetRoleRow.role,
           roleActive: targetRoleRow.active,
           active: target.active,
+          employmentStartDate: targetRoleRow.employment_start_date || null,
         },
         currentWeekTotals: {
           regularHoursWorked: round2(totals.regular),
@@ -130,6 +132,7 @@ exports.handler = async (event) => {
           allotmentHours: balance ? Number(balance.allotment_hours) : 0,
           usedHours: balance ? Number(balance.used_hours) : 0,
           remainingHours: balance ? round2(Number(balance.allotment_hours) - Number(balance.used_hours)) : 0,
+          utoDaysTaken: balance ? Number(balance.uto_days_taken) : 0,
         },
         recentPtoRequests: ptoRequests || [],
         entries: (entries || []).map(e => ({
@@ -154,7 +157,7 @@ exports.handler = async (event) => {
 
   let roleQuery = supabase
     .from('employee_company_roles')
-    .select('employee_id, role, foreman_id, active, employees!employee_company_roles_employee_id_fkey(id, first_name, last_name, phone, active)')
+    .select('employee_id, role, foreman_id, employment_start_date, active, employees!employee_company_roles_employee_id_fkey(id, first_name, last_name, phone, active)')
     .eq('company_id', companyId);
 
   if (!showInactive) {

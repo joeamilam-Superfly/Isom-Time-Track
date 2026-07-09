@@ -24,7 +24,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid request body' }) };
     }
 
-    const { companyId, firstName, lastName, phone, email, pin, role, foremanId } = body;
+    const { companyId, firstName, lastName, phone, email, pin, role, foremanId, employmentStartDate } = body;
     if (!companyId) return { statusCode: 400, body: JSON.stringify({ error: 'companyId is required' }) };
 
     const myRole = await resolveCompanyRole(auth.employeeId, companyId, auth.superAdmin);
@@ -92,6 +92,7 @@ exports.handler = async (event) => {
         company_id: companyId,
         role,
         foreman_id: foremanId || null,
+        employment_start_date: employmentStartDate || null,
         active: true,
       }, { onConflict: 'employee_id,company_id' })
       .select()
@@ -189,7 +190,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid request body' }) };
     }
 
-    const { companyId, employeeId, firstName, lastName, phone, email, role, foremanId } = body;
+    const { companyId, employeeId, firstName, lastName, phone, email, role, foremanId, employmentStartDate } = body;
     if (!companyId) return { statusCode: 400, body: JSON.stringify({ error: 'companyId is required' }) };
     if (!employeeId) return { statusCode: 400, body: JSON.stringify({ error: 'employeeId is required' }) };
 
@@ -271,6 +272,7 @@ exports.handler = async (event) => {
     const roleUpdate = {};
     if (role !== undefined) roleUpdate.role = role;
     if (foremanId !== undefined) roleUpdate.foreman_id = foremanId || null;
+    if (employmentStartDate !== undefined) roleUpdate.employment_start_date = employmentStartDate || null;
 
     let updatedRoleRow = null;
     if (Object.keys(roleUpdate).length > 0) {

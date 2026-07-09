@@ -180,7 +180,11 @@ exports.handler = async (event) => {
 
     const weekend = isWeekend(entryDate);
     const holiday = await isHoliday(entryDate);
-    const computedHours = rawHoursForEntry(timeIn, timeOut);
+    const rawHours = rawHoursForEntry(timeIn, timeOut);
+    // Holiday double-time: employees working on a recognized holiday are
+    // paid 2x, so we store 2x the hours directly in hours_worked so
+    // payroll reads the correct payable amount without any multiplier.
+    const computedHours = holiday ? rawHours * 2 : rawHours;
 
     const row = {
       employee_id: targetEmployeeId,
@@ -287,7 +291,8 @@ exports.handler = async (event) => {
       finalForemanId = foremanId || null;
     }
 
-    const computedHours = rawHoursForEntry(finalTimeIn, finalTimeOut);
+    const rawHours = rawHoursForEntry(finalTimeIn, finalTimeOut);
+    const computedHours = finalIsHoliday ? rawHours * 2 : rawHours;
 
     // Recompute is_weekend and is_holiday if the date changed, since
     // moving a segment from a weekday to a weekend (or onto a holiday)
