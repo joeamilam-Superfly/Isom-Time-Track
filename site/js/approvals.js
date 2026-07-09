@@ -253,198 +253,144 @@ function renderScheduleGrid(people, entries, weekDays, pendingLeave) {
   });
 }
 
-// Refreshes just the schedule grid data and re-renders the table in
-// place, preserving scroll position - called after each assignment save
-// so the grid stays current without a full page re-render.
-async function refreshScheduleGridInPlace(weekOf) {
+// Refreshes just the schedule grid in place after an assignment save,
+// preserving the scroll position so the admin stays at the same row
+// rather than jumping back to the top after each cell is saved.
+async function refreshScheduleGridInPlace() {
   const listEl = document.getElementById('approvals-list');
   if (!listEl) return;
-
   const weekDays = state.scheduleWeekDays;
   if (!weekDays || weekDays.length === 0) return;
-
   try {
+    const scrollY = window.scrollY;
     const [peopleData, scheduleData, locationsData] = await Promise.all([
       api(withCompany('/dashboard')),
       api(withCompany(`/schedule?startDate=${weekDays[0]}&endDate=${weekDays[4]}`)),
       api(withCompany('/job-locations')),
     ]);
     state.jobLocations = locationsData.locations || [];
-    const scrollY = window.scrollY;
     renderScheduleGrid(peopleData.people || [], scheduleData.entries || [], weekDays, scheduleData.pendingLeave || []);
-    window.scrollTo(0, scrollY); // restore scroll position
+    window.scrollTo(0, scrollY);
   } catch (err) {
     console.error('Grid refresh failed:', err);
   }
 }
 
 function showScheduleCellDialog(employeeId, person, date, existingEntries) {
-  const personName = person ? `${person.firstName} ${person.lastName}` : 'this person';
-  const weekDays = state.scheduleWeekDays || [];
-  const currentDayIndex = weekDays.indexOf(date);
-  const hasNextDay = currentDayIndex >= 0 && currentDayIndex < weekDays.length - 1;
-
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;overflow-y:auto;';
 
-  function buildDialogContent(currentDate, currentEntries) {
-    const dayIndex = weekDays.indexOf(currentDate);
-    const isLastDay = dayIndex >= weekDays.length - 1;
+  const personName = person ? `${person.firstName} ${person.lastName}` : 'this person';
 
-    return `
-      <div style="background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;max-height:85vh;overflow-y:auto;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
-          <div style="font-weight:700;font-size:17px;">${escapeHtml(personName)}</div>
-          <button id="sched-dialog-close" style="background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--ink-soft);padding:4px 8px;">&times;</button>
-        </div>
-        <div style="font-size:14px;color:var(--amber-dark);font-weight:600;margin-bottom:14px;">${formatDateLabel(currentDate)}</div>
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;max-height:85vh;overflow-y:auto;">
+      <div style="font-weight:700;font-size:17px;margin-bottom:2px;">${escapeHtml(personName)}</div>
+      <div style="font-size:14px;color:var(--amber-dark);font-weight:600;margin-bottom:14px;">${formatDateLabel(date)}</div>
 
-        <div id="existing-schedule-entries">
-          ${currentEntries.length === 0
-            ? `<div class="screen-sub" style="margin-bottom:14px;">No assignment yet for this day.</div>`
-            : currentEntries.map(e => `
-              <div class="employee-row" style="margin-bottom:8px;">
-                <div>
-                  <div class="employee-name">${e.job_locations ? escapeHtml(e.job_locations.name) : 'No location set'}</div>
-                  ${e.note ? `<div class="employee-meta">${escapeHtml(e.note)}</div>` : ''}
-                  ${e.deviation_reason ? `<div class="employee-meta" style="color:var(--amber-dark);">Not attended &mdash; ${escapeHtml(e.deviation_reason)}</div>` : ''}
-                </div>
-                <button class="btn btn-sm btn-ghost" data-remove-sched="${e.id}">Remove</button>
+      <div id="existing-schedule-entries">
+        ${existingEntries.length === 0
+          ? `<div class="screen-sub" style="margin-bottom:14px;">No assignment yet for this day.</div>`
+          : existingEntries.map(e => `
+            <div class="employee-row" style="margin-bottom:8px;">
+              <div>
+                <div class="employee-name">${e.job_locations ? escapeHtml(e.job_locations.name) : 'No location set'}</div>
+                ${e.note ? `<div class="employee-meta">${escapeHtml(e.note)}</div>` : ''}
+                ${e.deviation_reason ? `<div class="employee-meta" style="color:var(--amber-dark);">Not attended &mdash; ${escapeHtml(e.deviation_reason)}</div>` : ''}
               </div>
-            `).join('')
-          }
-        </div>
-
-        <div class="screen-sub" style="font-weight:600; color:var(--ink); margin:14px 0 8px;">Add an assignment</div>
-        <div class="field">
-          <label for="sched-location-select">Job location</label>
-          <select id="sched-location-select">
-            <option value="">No specific location</option>
-            ${(state.jobLocations || []).map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field">
-          <label for="sched-note">Note (optional)</label>
-          <input id="sched-note" type="text" placeholder="e.g. bring the lift" />
-        </div>
-        <div id="sched-dialog-error"></div>
-        <div class="btn-row" style="margin-top:8px;">
-          <button class="btn btn-ghost" id="sched-skip-btn">${isLastDay ? 'Done' : 'Skip to next day'}</button>
-          <button class="btn btn-primary" id="sched-dialog-add">${isLastDay ? 'Add & done' : 'Add & next day'}</button>
-        </div>
+              <button class="btn btn-sm btn-ghost" data-remove-sched="${e.id}">Remove</button>
+            </div>
+          `).join('')
+        }
       </div>
-    `;
-  }
 
-  function renderDay(currentDate, currentEntries) {
-    overlay.innerHTML = buildDialogContent(currentDate, currentEntries);
-    attachDayHandlers(currentDate);
-  }
-
-  async function advanceToNextDay(currentDate) {
-    const dayIndex = weekDays.indexOf(currentDate);
-    if (dayIndex < 0 || dayIndex >= weekDays.length - 1) {
-      // Last day or not found - close and refresh
-      document.body.removeChild(overlay);
-      await refreshScheduleGridInPlace(state.currentWeekOf);
-      return;
-    }
-
-    const nextDate = weekDays[dayIndex + 1];
-    // Fetch existing entries for the next day
-    try {
-      const data = await api(withCompany(`/schedule?employeeId=${employeeId}&startDate=${nextDate}&endDate=${nextDate}`));
-      renderDay(nextDate, data.entries || []);
-    } catch (err) {
-      renderDay(nextDate, []);
-    }
-  }
-
-  function attachDayHandlers(currentDate) {
-    const dayIndex = weekDays.indexOf(currentDate);
-    const isLastDay = dayIndex >= weekDays.length - 1;
-
-    document.getElementById('sched-dialog-close').addEventListener('click', async () => {
-      document.body.removeChild(overlay);
-      await refreshScheduleGridInPlace(state.currentWeekOf);
-    });
-
-    document.getElementById('sched-skip-btn').addEventListener('click', async () => {
-      if (isLastDay) {
-        document.body.removeChild(overlay);
-        await refreshScheduleGridInPlace(state.currentWeekOf);
-      } else {
-        await advanceToNextDay(currentDate);
-      }
-    });
-
-    overlay.querySelectorAll('[data-remove-sched]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const entryId = btn.getAttribute('data-remove-sched');
-        if (!confirm('Remove this assignment? The employee will be notified of the change.')) return;
-        try {
-          await api(`/schedule?entryId=${entryId}&companyId=${state.activeCompanyId}`, { method: 'DELETE' });
-          // Refresh the current day's entries in place
-          const data = await api(withCompany(`/schedule?employeeId=${employeeId}&startDate=${currentDate}&endDate=${currentDate}`));
-          renderDay(currentDate, data.entries || []);
-          await refreshScheduleGridInPlace(state.currentWeekOf);
-        } catch (err) {
-          alert(err.message);
-        }
-      });
-    });
-
-    document.getElementById('sched-dialog-add').addEventListener('click', async () => {
-      const jobLocationId = document.getElementById('sched-location-select').value || null;
-      const note = document.getElementById('sched-note').value.trim();
-      const errorEl = document.getElementById('sched-dialog-error');
-      errorEl.innerHTML = '';
-
-      const btn = document.getElementById('sched-dialog-add');
-      btn.disabled = true;
-      btn.textContent = 'Saving...';
-
-      async function doSave(confirmOverride = false) {
-        const result = await api('/schedule', {
-          method: 'POST',
-          body: JSON.stringify({
-            companyId: state.activeCompanyId,
-            employeeId,
-            scheduledDate: currentDate,
-            jobLocationId,
-            note,
-            ...(confirmOverride ? { confirmOverride: true } : {}),
-          }),
-        });
-
-        if (result.leaveConflict) {
-          btn.disabled = false;
-          btn.textContent = isLastDay ? 'Add & done' : 'Add & next day';
-          const confirmed = confirm(`${result.message}\n\nDo you still want to schedule them on this day anyway?`);
-          if (confirmed) {
-            btn.disabled = true;
-            btn.textContent = 'Saving...';
-            await doSave(true);
-          }
-          return;
-        }
-
-        // Save succeeded - advance to next day
-        await advanceToNextDay(currentDate);
-      }
-
-      try {
-        await doSave();
-      } catch (err) {
-        errorEl.innerHTML = errorHtml(err.message);
-        btn.disabled = false;
-        btn.textContent = isLastDay ? 'Add & done' : 'Add & next day';
-      }
-    });
-  }
-
+      <div class="screen-sub" style="font-weight:600; color:var(--ink); margin:14px 0 8px;">Add an assignment</div>
+      <div class="field">
+        <label for="sched-location-select">Job location</label>
+        <select id="sched-location-select">
+          <option value="">No specific location</option>
+          ${(state.jobLocations || []).map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label for="sched-note">Note (optional)</label>
+        <input id="sched-note" type="text" placeholder="e.g. bring the lift" />
+      </div>
+      <div id="sched-dialog-error"></div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-ghost" id="sched-dialog-close">Close</button>
+        <button class="btn btn-primary" id="sched-dialog-add">Add assignment</button>
+      </div>
+    </div>
+  `;
   document.body.appendChild(overlay);
-  renderDay(date, existingEntries);
+
+  // Closes the dialog and refreshes the grid in place, preserving the
+  // scroll position so the admin stays at the same row in the list
+  // rather than jumping back to the top after each assignment.
+  async function closeAndRefresh() {
+    document.body.removeChild(overlay);
+    await refreshScheduleGridInPlace(state.currentWeekOf);
+  }
+
+  document.getElementById('sched-dialog-close').addEventListener('click', () => closeAndRefresh());
+
+  overlay.querySelectorAll('[data-remove-sched]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const entryId = btn.getAttribute('data-remove-sched');
+      if (!confirm('Remove this assignment? The employee will be notified of the change.')) return;
+      try {
+        await api(`/schedule?entryId=${entryId}&companyId=${state.activeCompanyId}`, { method: 'DELETE' });
+        closeAndRefresh();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  document.getElementById('sched-dialog-add').addEventListener('click', async () => {
+    const jobLocationId = document.getElementById('sched-location-select').value || null;
+    const note = document.getElementById('sched-note').value.trim();
+    const errorEl = document.getElementById('sched-dialog-error');
+    errorEl.innerHTML = '';
+
+    const btn = document.getElementById('sched-dialog-add');
+    btn.disabled = true;
+    btn.textContent = 'Adding...';
+
+    try {
+      const result = await api('/schedule', {
+        method: 'POST',
+        body: JSON.stringify({ companyId: state.activeCompanyId, employeeId, scheduledDate: date, jobLocationId, note }),
+      });
+
+      if (result.leaveConflict) {
+        btn.disabled = false;
+        btn.textContent = 'Add assignment';
+        const confirmed = confirm(`${result.message}\n\nDo you still want to schedule them on this day anyway?`);
+        if (confirmed) {
+          btn.disabled = true;
+          btn.textContent = 'Adding...';
+          try {
+            await api('/schedule', {
+              method: 'POST',
+              body: JSON.stringify({ companyId: state.activeCompanyId, employeeId, scheduledDate: date, jobLocationId, note, confirmOverride: true }),
+            });
+            closeAndRefresh();
+          } catch (overrideErr) {
+            errorEl.innerHTML = errorHtml(overrideErr.message);
+            btn.disabled = false;
+            btn.textContent = 'Add assignment';
+          }
+        }
+      } else {
+        closeAndRefresh();
+      }
+    } catch (err) {
+      errorEl.innerHTML = errorHtml(err.message);
+      btn.disabled = false;
+      btn.textContent = 'Add assignment';
+    }
+  });
 }
 
 // A quick week-jump dropdown for the Schedule sub-view, since scheduling
