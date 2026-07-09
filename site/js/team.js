@@ -438,6 +438,19 @@ async function showEditProfileDialog(employee) {
         <div class="screen-sub">Used to auto-calculate annual PTO allotment on their work anniversary.</div>
       </div>
 
+      <div id="pto-calc-section" style="display:none; background:var(--paper-dim); border-radius:8px; padding:14px; margin-top:4px;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:10px;" id="pto-calc-label"></div>
+        <div class="field">
+          <label for="edit-allotment-hours">Annual allotment (hours)</label>
+          <input id="edit-allotment-hours" type="number" min="0" step="1" />
+        </div>
+        <div class="field">
+          <label for="edit-used-hours">Already used this year (hours)</label>
+          <input id="edit-used-hours" type="number" min="0" step="0.5" value="0" />
+          <div class="screen-sub">Enter any leave already taken before this system tracked it.</div>
+        </div>
+      </div>
+
       <div id="edit-profile-error"></div>
       <div class="btn-row" style="margin-top:8px;">
         <button class="btn btn-ghost" id="edit-profile-cancel">Cancel</button>
@@ -446,6 +459,48 @@ async function showEditProfileDialog(employee) {
     </div>
   `;
   document.body.appendChild(overlay);
+
+  // Same accrual rules as scheduled-pto-accrual.js - must stay in sync.
+  function calcAllotmentHours(startDateStr) {
+    if (!startDateStr) return null;
+    const startYear = parseInt(startDateStr.slice(0, 4), 10);
+    const currentYear = new Date().getFullYear();
+    const yearsOfService = currentYear - startYear;
+    if (yearsOfService < 1) return 0;
+    if (yearsOfService >= 5) return 80; // 10 days
+    return (5 + (yearsOfService - 1)) * 8; // 1yr=40h, 2yr=48h, 3yr=56h, 4yr=64h
+  }
+
+  function updatePtoCalc() {
+    const startDate = document.getElementById('edit-start-date').value;
+    const section = document.getElementById('pto-calc-section');
+    const label = document.getElementById('pto-calc-label');
+    const allotmentInput = document.getElementById('edit-allotment-hours');
+
+    if (!startDate) {
+      section.style.display = 'none';
+      return;
+    }
+
+    const hours = calcAllotmentHours(startDate);
+    const startYear = parseInt(startDate.slice(0, 4), 10);
+    const years = new Date().getFullYear() - startYear;
+    const days = hours / 8;
+
+    section.style.display = 'block';
+
+    if (hours === 0) {
+      label.textContent = `Less than 1 year of service — no PTO entitlement yet for ${new Date().getFullYear()}.`;
+      allotmentInput.value = 0;
+    } else {
+      label.textContent = `${years} year${years !== 1 ? 's' : ''} of service — ${days} day${days !== 1 ? 's' : ''} (${hours}h) for ${new Date().getFullYear()}.`;
+      allotmentInput.value = hours;
+    }
+  }
+
+  // Trigger immediately if start date already set
+  updatePtoCalc();
+  document.getElementById('edit-start-date').addEventListener('change', updatePtoCalc);
 
   document.getElementById('edit-profile-cancel').addEventListener('click', () => document.body.removeChild(overlay));
 
@@ -488,6 +543,26 @@ async function showEditProfileDialog(employee) {
           employmentStartDate,
         }),
       });
+
+      // If a start date is set and the PTO calc section is visible,
+      // also save the allotment and used hours to pto_balances so the
+      // balance is set correctly right now rather than waiting until
+      // the next anniversary run.
+      const calcSection = document.getElementById('pto-calc-section');
+      if (employmentStartDate && calcSection && calcSection.style.display !== 'none') {
+        const allotmentHours = Number(document.getElementById('edit-allotment-hours').value || 0);
+        const usedHours = Number(document.getElementById('edit-used-hours').value || 0);
+        await api('/pto-balances', {
+          method: 'PUT',
+          body: JSON.stringify({
+            employeeId: employee.id,
+            companyId: state.activeCompanyId,
+            year: new Date().getFullYear(),
+            allotmentHours,
+            usedHours,
+          }),
+        });
+      }
 
       document.body.removeChild(overlay);
       render('team', { employeeId: employee.id });
