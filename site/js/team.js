@@ -127,6 +127,12 @@ function renderTeamDetailContent(data) {
       <div class="summary-row"><span class="label">Allotment</span><span class="value">${ptoBalance.allotmentHours.toFixed(1)}h</span></div>
       <div class="summary-row"><span class="label">Used</span><span class="value">${ptoBalance.usedHours.toFixed(1)}h</span></div>
       <div class="summary-row total"><span class="label">Remaining</span><span class="value">${ptoBalance.remainingHours.toFixed(1)}h</span></div>
+      ${((ptoBalance.utoDaysTaken || 0) > 0 || isAdmin) ? `
+        <div class="summary-row" style="border-top:1px solid var(--line); margin-top:6px; padding-top:6px;">
+          <span class="label" style="color:var(--ink-soft);">Unpaid days taken (all time)</span>
+          <span class="value" style="color:var(--ink-soft);">${(ptoBalance.utoDaysTaken || 0).toFixed(1)}</span>
+        </div>
+      ` : ''}
     </div>
     ${isAdmin ? `
       <div class="btn-row" style="margin-bottom:20px;">
@@ -204,7 +210,6 @@ function showEditAllotmentDialog(employee, currentBalance) {
     <div style="background:#fff;border-radius:12px;padding:20px;max-width:380px;width:100%;">
       <div style="font-weight:700;font-size:17px;margin-bottom:14px;">Edit leave balance</div>
       <div class="screen-sub">${escapeHtml(employee.firstName)} ${escapeHtml(employee.lastName)} &middot; ${currentBalance.year}</div>
-      <div class="screen-sub">This balance is combined across every company this person works at.</div>
       <div class="field">
         <label for="allotment-hours">Annual allotment (hours)</label>
         <input id="allotment-hours" type="number" min="0" step="1" value="${currentBalance.allotmentHours}" />
@@ -214,6 +219,11 @@ function showEditAllotmentDialog(employee, currentBalance) {
         <input id="used-hours" type="number" min="0" step="0.5" value="${currentBalance.usedHours}" />
       </div>
       <div class="screen-sub">Used hours normally update automatically when a leave request is approved. Changing this number directly overrides that - use this for backfilling history or correcting a mistake.</div>
+      <div class="field" style="margin-top:14px; border-top:1px solid var(--line); padding-top:14px;">
+        <label for="uto-days">Unpaid time off days (all time, never resets)</label>
+        <input id="uto-days" type="number" min="0" step="0.5" value="${currentBalance.utoDaysTaken || 0}" />
+      </div>
+      <div class="screen-sub">This tracks unpaid days taken over the employee's entire tenure, for performance record purposes. Only adjustable here by admin.</div>
       <div id="allotment-dialog-error"></div>
       <div class="btn-row" style="margin-top:12px;">
         <button class="btn btn-ghost" id="allotment-cancel">Cancel</button>
@@ -228,11 +238,12 @@ function showEditAllotmentDialog(employee, currentBalance) {
   document.getElementById('allotment-save').addEventListener('click', async () => {
     const allotmentHours = Number(document.getElementById('allotment-hours').value || 0);
     const usedHours = Number(document.getElementById('used-hours').value || 0);
+    const utoDaysTaken = Number(document.getElementById('uto-days').value || 0);
     const errorEl = document.getElementById('allotment-dialog-error');
     try {
       await api('/pto-balances', {
         method: 'PUT',
-        body: JSON.stringify({ employeeId: employee.id, companyId: state.activeCompanyId, year: currentBalance.year, allotmentHours, usedHours }),
+        body: JSON.stringify({ employeeId: employee.id, companyId: state.activeCompanyId, year: currentBalance.year, allotmentHours, usedHours, utoDaysTaken }),
       });
       document.body.removeChild(overlay);
       render('team', { employeeId: employee.id });
@@ -421,6 +432,11 @@ async function showEditProfileDialog(employee) {
           ${possibleForemen.map(p => `<option value="${p.id}">${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)} (${p.role})</option>`).join('')}
         </select>
       </div>
+      <div class="field">
+        <label for="edit-start-date">Employment start date (optional)</label>
+        <input id="edit-start-date" type="date" value="${employee.employmentStartDate || ''}" />
+        <div class="screen-sub">Used to auto-calculate annual PTO allotment on their work anniversary.</div>
+      </div>
 
       <div id="edit-profile-error"></div>
       <div class="btn-row" style="margin-top:8px;">
@@ -440,6 +456,7 @@ async function showEditProfileDialog(employee) {
     const email = document.getElementById('edit-email').value.trim();
     const role = document.getElementById('edit-role').value;
     const foremanId = document.getElementById('edit-foreman').value || undefined;
+    const employmentStartDate = document.getElementById('edit-start-date').value || undefined;
     const errorEl = document.getElementById('edit-profile-error');
     errorEl.innerHTML = '';
 
@@ -468,6 +485,7 @@ async function showEditProfileDialog(employee) {
           email: email || null,
           role,
           foremanId,
+          employmentStartDate,
         }),
       });
 
