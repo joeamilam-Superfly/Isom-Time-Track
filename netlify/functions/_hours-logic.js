@@ -150,6 +150,14 @@ function classifyWeek(entries) {
     } else if (weekend) {
       bucket = 'overtime';
       otPortion = payableHours;
+    } else if (isBreak) {
+      // Lunch and break segments are always regular pay regardless of
+      // where the employee sits in the weekly total - they can never
+      // push someone into overtime. They do NOT add to runningWeekdayHours
+      // so a 40-hour week + 0.5h lunch = 40h regular work + 0.5h regular
+      // lunch, not 40h regular + 0.5h overtime.
+      regularPortion = payableHours;
+      bucket = 'regular';
     } else {
       const before = runningWeekdayHours;
       runningWeekdayHours += payableHours;
