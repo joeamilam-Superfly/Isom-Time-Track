@@ -340,12 +340,13 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
 async function refreshScheduleGridInPlace() {
   const listEl = document.getElementById('approvals-list');
   if (!listEl) return;
-  const week1Days = state.scheduleWeekDays; // current week (what was set in loadScheduleGrid)
+  const week1Days = state.scheduleWeekDays; // current week days (already have correct dates)
   if (!week1Days || week1Days.length === 0) return;
-  const startOffset = activeWeekStartDay() === 1 ? 0 : 1;
-  const monday = week1Days[0]; // start of current week
-  const week0Days = [0,1,2,3,4,5,6].map(i => addDaysStr(monday, i - 7 + startOffset)); // prior week
-  const week2Days = [0,1,2,3,4,5,6].map(i => addDaysStr(monday, i + 7 + startOffset)); // next week
+  // Derive prior and next weeks by shifting exactly 7 days from each
+  // day in week1Days. Do NOT re-apply startOffset — it's already baked
+  // into week1Days from when loadScheduleGrid ran.
+  const week0Days = week1Days.map(d => addDaysStr(d, -7));
+  const week2Days = week1Days.map(d => addDaysStr(d, 7));
   const startDate = week0Days[0];
   const endDate = week2Days[6];
   try {
