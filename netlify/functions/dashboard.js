@@ -218,6 +218,7 @@ exports.handler = async (event) => {
         firstName: r.employees.first_name,
         lastName: r.employees.last_name,
         role: r.role,
+        foremanId: r.foreman_id || null,
         phone: r.employees.phone,
         roleActive: r.active,
         currentWeekHours: round2(totals.weekly_total),
