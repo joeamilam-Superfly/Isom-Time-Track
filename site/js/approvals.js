@@ -144,14 +144,15 @@ async function loadScheduleGrid(weekOf) {
   listEl.innerHTML = loadingHtml();
 
   try {
-    // Three weeks: current + 2 ahead. Each week is Mon-Fri (5 days),
-    // so we fetch from Monday of this week through Friday of week+2.
-    // When week starts Sunday (default), Mon-Fri = offsets 1-5
-    // When week starts Monday, Mon-Fri = offsets 0-4
+    // Three 7-day weeks: prior week (left), current week (middle, where
+    // assignments are made), next week (right). Showing prior week lets
+    // the admin/foreman see last week's assignments for context without
+    // having to navigate away. Weekend columns included for weekend work.
     const startOffset = activeWeekStartDay() === 1 ? 0 : 1;
-    const week0Days = [0,1,2,3,4].map(i => addDaysStr(weekOf, startOffset + i));
-    const week1Days = [0,1,2,3,4].map(i => addDaysStr(weekOf, startOffset + i + 7));
-    const week2Days = [0,1,2,3,4].map(i => addDaysStr(weekOf, startOffset + i + 14));
+    const priorWeekStart = addDaysStr(weekOf, -7);
+    const week0Days = [0,1,2,3,4,5,6].map(i => addDaysStr(priorWeekStart, startOffset + i));
+    const week1Days = [0,1,2,3,4,5,6].map(i => addDaysStr(weekOf, startOffset + i));
+    const week2Days = [0,1,2,3,4,5,6].map(i => addDaysStr(weekOf, startOffset + i + 7));
     const allDays = [...week0Days, ...week1Days, ...week2Days];
 
     const startDate = allDays[0];
@@ -164,7 +165,7 @@ async function loadScheduleGrid(weekOf) {
     ]);
 
     state.jobLocations = locationsData.locations || [];
-    state.scheduleWeekDays = week0Days; // dialog still advances through single week
+    state.scheduleWeekDays = week1Days; // dialog advances through current week
     renderScheduleGrid(peopleData.people || [], scheduleData.entries || [], week0Days, week1Days, week2Days, scheduleData.pendingLeave || []);
   } catch (err) {
     listEl.innerHTML = errorHtml(err.message);
@@ -174,6 +175,7 @@ async function loadScheduleGrid(weekOf) {
 function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pendingLeave) {
   const listEl = document.getElementById('approvals-list');
   const allDays = [...week0Days, ...week1Days, ...week2Days];
+  const priorDaySet = new Set(week0Days); // prior week cells are read-only
 
   if (people.length === 0) {
     listEl.innerHTML = `<div class="empty-state"><div class="icon">&#128197;</div>No one to schedule yet.</div>`;
@@ -199,7 +201,12 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
   }
 
   function weekLabel(days) {
-    return days[0].slice(5).replace('-','/') + ' \u2013 ' + days[4].slice(5).replace('-','/');
+    return days[0].slice(5).replace('-','/') + ' \u2013 ' + days[6].slice(5).replace('-','/');
+  }
+
+  function isWeekendDate(dateStr) {
+    const dow = new Date(dateStr + 'T00:00:00').getDay();
+    return dow === 0 || dow === 6; // Sun or Sat
   }
 
   function cellHtml(personId, d, idx) {
@@ -207,16 +214,25 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
     const dayEntries = entriesByKey[key] || [];
     const isOff = dayEntries.some(e => e.job_locations?.name?.toUpperCase() === 'OFF');
     const hasPendingLeave = pendingLeaveKeys.has(key);
+    const isPrior = priorDaySet.has(d);
+    const isWknd = isWeekendDate(d);
     const cellText = dayEntries.length > 0
       ? dayEntries.map(e => (e.job_locations ? escapeHtml(e.job_locations.name) : '(no site)') + (e.deviation_reason ? ' \u26a0' : '')).join(', ')
       : hasPendingLeave ? '\u23f3 Leave pending' : '';
-    const cellBg = isOff ? '#e53e3e' : hasPendingLeave && !dayEntries.length ? '#fef3c7' : dayEntries.length ? 'var(--paper-dim)' : 'transparent';
+    const cellBg = isOff ? '#e53e3e'
+      : hasPendingLeave && !dayEntries.length ? '#fef3c7'
+      : dayEntries.length ? 'var(--paper-dim)'
+      : isWknd && !isPrior ? '#f5f0e8'  // subtle weekend tint on current/next week
+      : 'transparent';
     const cellColor = isOff ? '#fff' : hasPendingLeave && !dayEntries.length ? '#92400e' : 'inherit';
     const cellBorder = isOff || dayEntries.length ? 'transparent' : hasPendingLeave ? '#fbbf24' : 'var(--line)';
-    const weekBorder = (idx === 5 || idx === 10) ? 'border-left:2px solid var(--amber);' : '';
-    return `<td style="padding:3px; border-bottom:1px solid var(--line); cursor:pointer; vertical-align:top; ${weekBorder}" data-grid-cell="${personId}|${d}">
-      <div style="min-height:30px; padding:3px 4px; border-radius:4px; background:${cellBg}; border:1px dashed ${cellBorder}; color:${cellColor}; font-weight:${isOff?'600':'normal'}; font-size:11px;">
-        ${cellText || '<span style="color:var(--line);">+</span>'}
+    const weekBorder = (idx === 7 || idx === 14) ? 'border-left:2px solid var(--amber);' : '';
+    const priorStyle = isPrior ? 'opacity:0.7;' : '';
+    const dataAttr = isPrior ? '' : `data-grid-cell="${personId}|${d}"`;
+    const cursor = isPrior ? 'default' : 'pointer';
+    return `<td style="padding:3px; border-bottom:1px solid var(--line); cursor:${cursor}; vertical-align:top; ${weekBorder}${priorStyle}" ${dataAttr}>
+      <div style="min-height:28px; padding:3px 4px; border-radius:4px; background:${cellBg}; border:1px dashed ${cellBorder}; color:${cellColor}; font-weight:${isOff?'600':'normal'}; font-size:11px;">
+        ${cellText || (isPrior ? '' : '<span style="color:var(--line);">+</span>')}
       </div>
     </td>`;
   }
@@ -230,7 +246,8 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
     </tr>`;
   }
 
-  // Group by foreman - foremen/admins are section headers with their crew below
+  // Group by foreman. Foremen are shown as section headers AND get their
+  // own schedulable row so they can be assigned to job sites like anyone else.
   const foremanMap = {};
   for (const p of people) {
     if (p.role === 'foreman' || p.role === 'admin') {
@@ -269,24 +286,34 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
     ${unassigned.sort((a,b) => a.lastName.localeCompare(b.lastName)).map(p => personRowHtml(p)).join('')}
   ` : '';
 
+  // Week header labels: prior=context only, current=active scheduling, next=planning
+  const weekMeta = [
+    { days: week0Days, label: 'Prior week', note: 'read only' },
+    { days: week1Days, label: 'This week', note: 'scheduling' },
+    { days: week2Days, label: 'Next week', note: 'planning' },
+  ];
+
   listEl.innerHTML = `
     <div class="schedule-grid-fullwidth">
       <table style="width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed;">
         <thead>
           <tr>
             <th style="text-align:left; padding:6px 8px; border-bottom:2px solid var(--line); position:sticky; left:0; background:var(--paper); width:130px;"></th>
-            ${[week0Days, week1Days, week2Days].map((wk, wi) => `
-              <th colspan="5" style="text-align:center; padding:4px 6px; border-bottom:2px solid var(--line); ${wi > 0 ? 'border-left:2px solid var(--amber);' : ''} background:var(--paper-dim); font-size:11px; font-weight:700;">
-                Week ${wi + 1} &nbsp; ${weekLabel(wk)}
+            ${weekMeta.map((wk, wi) => `
+              <th colspan="7" style="text-align:center; padding:4px 6px; border-bottom:2px solid var(--line); ${wi > 0 ? 'border-left:2px solid var(--amber);' : ''} background:${wi === 0 ? 'var(--line)' : wi === 1 ? 'var(--paper-dim)' : 'var(--paper-dim)'}; font-size:11px; font-weight:700; opacity:${wi === 0 ? '0.7' : '1'};">
+                ${wk.label} &nbsp;<span style="font-weight:400;">${weekLabel(wk.days)}</span>
               </th>`).join('')}
           </tr>
           <tr>
             <th style="position:sticky; left:0; background:var(--paper); border-bottom:1px solid var(--line); padding:4px 8px; font-size:11px; color:var(--ink-soft);">Name</th>
-            ${allDays.map((d, i) => `
-              <th style="text-align:left; padding:3px 3px; border-bottom:1px solid var(--line); font-size:10px; font-weight:600; ${i===5||i===10?'border-left:2px solid var(--amber);':''}">
+            ${allDays.map((d, i) => {
+              const isWknd = isWeekendDate(d);
+              const isPrior = priorDaySet.has(d);
+              return `<th style="text-align:left; padding:3px 3px; border-bottom:1px solid var(--line); font-size:10px; font-weight:600; ${i===7||i===14?'border-left:2px solid var(--amber);':''} ${isWknd?'background:#f5f0e8;':''} ${isPrior?'opacity:0.7;':''}">
                 ${new Date(d+'T00:00:00').toLocaleDateString('en-US',{weekday:'short'})}<br>
                 <span style="font-weight:400; color:var(--ink-soft);">${d.slice(5)}</span>
-              </th>`).join('')}
+              </th>`;
+            }).join('')}
           </tr>
         </thead>
         <tbody>${sections}${unassignedSection}</tbody>
@@ -294,13 +321,13 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
     </div>
   `;
 
+  // Only attach click handlers to current and next week cells (not prior week)
   listEl.querySelectorAll('[data-grid-cell]').forEach(cell => {
     cell.addEventListener('click', () => {
       const [personId, date] = cell.getAttribute('data-grid-cell').split('|');
       const allPeople = [...Object.values(foremanMap).flatMap(g => [g.foreman, ...g.crew]), ...unassigned];
       const person = allPeople.find(p => p.id === personId);
-      // Set weekDays to the week containing this date so dialog navigation works
-      state.scheduleWeekDays = [week0Days, week1Days, week2Days].find(wk => wk.includes(date)) || week0Days;
+      state.scheduleWeekDays = [week1Days, week2Days].find(wk => wk.includes(date)) || week1Days;
       showScheduleCellDialog(personId, person, date, entriesByKey[`${personId}|${date}`] || []);
     });
   });
@@ -313,14 +340,14 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
 async function refreshScheduleGridInPlace() {
   const listEl = document.getElementById('approvals-list');
   if (!listEl) return;
-  const week0Days = state.scheduleWeekDays;
-  if (!week0Days || week0Days.length === 0) return;
-  // Derive week 1 and 2 from week 0's Monday
-  const monday = week0Days[0];
-  const week1Days = [1,2,3,4,5].map(i => addDaysStr(monday, i + 7));
-  const week2Days = [1,2,3,4,5].map(i => addDaysStr(monday, i + 14));
+  const week1Days = state.scheduleWeekDays; // current week (what was set in loadScheduleGrid)
+  if (!week1Days || week1Days.length === 0) return;
+  const startOffset = activeWeekStartDay() === 1 ? 0 : 1;
+  const monday = week1Days[0]; // start of current week
+  const week0Days = [0,1,2,3,4,5,6].map(i => addDaysStr(monday, i - 7 + startOffset)); // prior week
+  const week2Days = [0,1,2,3,4,5,6].map(i => addDaysStr(monday, i + 7 + startOffset)); // next week
   const startDate = week0Days[0];
-  const endDate = week2Days[4];
+  const endDate = week2Days[6];
   try {
     const scrollY = window.scrollY;
     const [peopleData, scheduleData, locationsData] = await Promise.all([
