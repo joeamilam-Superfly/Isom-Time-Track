@@ -11,7 +11,10 @@ async function renderAdmin(opts) {
         <div class="week-label">${formatWeekRange(weekOf)}</div>
         <button id="week-next" aria-label="Next week">&rarr;</button>
       </div>
-      <button class="btn btn-amber" id="export-btn" style="margin-bottom:20px;">Export this week (CSV)</button>
+      <div style="display:flex; gap:10px; margin-bottom:20px;">
+        <button class="btn btn-amber" id="export-btn" style="flex:1;">Export this week (CSV)</button>
+        <button class="btn btn-ghost" id="export-pdf-btn" style="flex:1;">Receipt PDF</button>
+      </div>
       <div id="admin-summary">${loadingHtml()}</div>
 
       <div class="screen-sub" style="font-weight:600; color:var(--ink); margin: 24px 0 8px;">Job locations</div>
@@ -43,6 +46,7 @@ async function renderAdmin(opts) {
   }
 
   document.getElementById('export-btn').addEventListener('click', () => exportWeekCsv(weekOf, summaries));
+  document.getElementById('export-pdf-btn').addEventListener('click', () => downloadReceiptPdf(weekOf));
   document.getElementById('find-duplicates-btn').addEventListener('click', loadDuplicateGroups);
 
   loadJobLocationsAdmin();
@@ -539,4 +543,45 @@ function csvEscape(value) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
+}
+
+async function downloadReceiptPdf(weekOf) {
+  const btn = document.getElementById('export-pdf-btn');
+  btn.disabled = true;
+  btn.textContent = 'Generating PDF...';
+
+  try {
+    const response = await fetch(
+      `/.netlify/functions/receipt-pdf?companyId=${encodeURIComponent(state.activeCompanyId)}&weekOf=${encodeURIComponent(weekOf)}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${state.token}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      if (data.noReceipts) {
+        alert('No receipts found for this week.');
+        return;
+      }
+      throw new Error(data.error || 'Failed to generate PDF');
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `receipts-${weekOf}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert(`Could not generate receipt PDF: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Receipt PDF';
+  }
 }
