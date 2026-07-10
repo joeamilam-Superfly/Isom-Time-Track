@@ -284,7 +284,19 @@ function renderAdminSummary(summaries) {
   `).join('');
 }
 
-function exportWeekCsv(weekOf, summaries) {
+async function exportWeekCsv(weekOf, summaries) {
+  // Fetch receipt photos for this week alongside the time entry data
+  const weekEnd = addDaysStr(weekOf, 6);
+  let receipts = [];
+  try {
+    const receiptData = await api(withCompany(
+      `/job-photos?receiptsOnly=true&startDate=${weekOf}&endDate=${weekEnd}`
+    ));
+    receipts = receiptData.photos || [];
+  } catch (err) {
+    console.error('Could not fetch receipts for CSV:', err);
+  }
+
   const rows = [
     ['Employee', 'Date', 'Job Location', 'Activity', 'Time In', 'Time Out', 'Hours Worked', 'Status'],
   ];
@@ -312,6 +324,45 @@ function exportWeekCsv(weekOf, summaries) {
     rows.push([s.employeeName, '', '', '', '', 'Leave', s.totals.ptoHours.toFixed(2)]);
     rows.push([s.employeeName, '', '', '', '', 'Total weekly hours', s.totals.weeklyHours.toFixed(2)]);
     rows.push([]);
+  }
+
+  // Receipts section - separate from hours, grouped by employee
+  if (receipts.length > 0) {
+    rows.push([]);
+    rows.push(['--- RECEIPTS ---', '', '', '', '', '', '']);
+    rows.push(['Employee', 'Date', 'Job Location', 'Description', 'Amount ($)', '', '']);
+    rows.push([]);
+
+    // Group receipts by employee name
+    const receiptsByEmployee = {};
+    for (const r of receipts) {
+      const name = r.employeeName || 'Unknown';
+      if (!receiptsByEmployee[name]) receiptsByEmployee[name] = [];
+      receiptsByEmployee[name].push(r);
+    }
+
+    for (const [employeeName, empReceipts] of Object.entries(receiptsByEmployee).sort()) {
+      let employeeTotal = 0;
+      for (const r of empReceipts) {
+        const amount = r.receiptAmount ? Number(r.receiptAmount) : 0;
+        employeeTotal += amount;
+        rows.push([
+          employeeName,
+          r.takenAt ? r.takenAt.slice(0, 10) : '',
+          r.jobLocationName || '',
+          r.description || '',
+          amount.toFixed(2),
+          '',
+          '',
+        ]);
+      }
+      rows.push([employeeName, '', '', 'Total receipts', employeeTotal.toFixed(2), '', '']);
+      rows.push([]);
+    }
+
+    // Grand total across all employees
+    const grandTotal = receipts.reduce((sum, r) => sum + (r.receiptAmount ? Number(r.receiptAmount) : 0), 0);
+    rows.push(['ALL EMPLOYEES', '', '', 'Week receipt total', grandTotal.toFixed(2), '', '']);
   }
 
   const csv = rows.map(row => row.map(csvEscape).join(',')).join('\n');
