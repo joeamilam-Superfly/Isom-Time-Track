@@ -11,7 +11,8 @@ const state = {
   activeCompanyId: localStorage.getItem('isom_active_company') || null,
   currentWeekOf: null, // YYYY-MM-DD of the Sunday for the week being viewed
   jobLocations: [],
-  foremen: [], // [{id, name, role}] - every foreman/admin at the active company
+  foremen: [],
+  pendingLeaveRequestCount: 0, // count of leave requests assigned to this user awaiting decision // [{id, name, role}] - every foreman/admin at the active company
   weekEntries: {}, // date -> entry
   pendingLocationConfirm: null,
   view: 'loading',
