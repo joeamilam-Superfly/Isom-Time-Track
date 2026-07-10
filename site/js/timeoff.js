@@ -156,6 +156,8 @@ async function decidePtoRequest(requestId, action) {
       method: 'PUT',
       body: JSON.stringify({ requestId, action, note }),
     });
+    // Recheck pending count so the Leave tab badge updates immediately
+    state.pendingLeaveRequestCount = Math.max(0, (state.pendingLeaveRequestCount || 1) - 1);
     render('timeoff');
   } catch (err) {
     alert(err.message);
