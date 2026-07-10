@@ -2,10 +2,12 @@ const { getAuthContext, unauthorized, forbidden, errorResponse } = require('./_a
 const { classifyWeek, determineWeeklyApprovalForeman } = require('./_hours-logic');
 const { resolveCompanyRole, supabase } = require('./_company-role');
 
-function weekStart(dateStr) {
+function weekStart(dateStr, startDay = 0) {
+  // startDay: 0 = Sunday (default), 1 = Monday
   const d = new Date(dateStr + 'T00:00:00Z');
   const day = d.getUTCDay();
-  d.setUTCDate(d.getUTCDate() - day);
+  const diff = (day - startDay + 7) % 7;
+  d.setUTCDate(d.getUTCDate() - diff);
   return d.toISOString().slice(0, 10);
 }
 
@@ -30,7 +32,15 @@ exports.handler = async (event) => {
   const myRole = await resolveCompanyRole(auth.employeeId, companyId, auth.superAdmin);
   if (!myRole) return forbidden('You do not have access to this company');
 
-  const weekOf = params.weekOf ? weekStart(params.weekOf) : weekStart(new Date().toISOString().slice(0, 10));
+  // Fetch company config for week start day (0=Sun, 1=Mon)
+  const { data: company } = await supabase
+    .from('companies')
+    .select('week_start_day')
+    .eq('id', companyId)
+    .maybeSingle();
+  const weekStartDay = company ? (company.week_start_day || 0) : 0;
+
+  const weekOf = params.weekOf ? weekStart(params.weekOf, weekStartDay) : weekStart(new Date().toISOString().slice(0, 10), weekStartDay);
   const weekEnd = addDays(weekOf, 6);
 
   // Determine which employees this caller is allowed to see, AT THIS COMPANY.
@@ -147,6 +157,7 @@ exports.handler = async (event) => {
       byDate[c.entry_date].push({
         id: c.id,
         jobLocation: c.job_locations?.name || null,
+        jobLocationId: c.job_location_id || null,
         activityDescription: c.activity_description,
         timeIn: c.time_in,
         timeOut: c.time_out,
