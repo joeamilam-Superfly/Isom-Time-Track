@@ -252,4 +252,52 @@ function findMostRecentSegmentForeman(segments, defaultForemanId) {
   return sorted[0].foreman_id || defaultForemanId || null;
 }
 
-module.exports = { rawHoursForEntry, isWeekend, classifyWeek, timeStringToMinutes, findOverlappingSegment, normalizeSegmentRange, rangesOverlap, isBreakLocationName, determineWeeklyApprovalForeman, findMostRecentSegmentForeman };
+// Returns true if dateStr (YYYY-MM-DD) falls on one of the six company
+// recognized holidays. Computed dynamically for any year so no annual
+// database seeding is needed.
+//
+// Holidays:
+//   New Year's Day    - January 1
+//   Memorial Day      - Last Monday of May
+//   Independence Day  - July 4
+//   Labor Day         - First Monday of September
+//   Thanksgiving      - Fourth Thursday of November
+//   Christmas Day     - December 25
+function isHoliday(dateStr) {
+  const [year, month, day] = dateStr.split('-').map(Number);
+
+  // Fixed-date holidays
+  if (month === 1 && day === 1) return true;   // New Year's Day
+  if (month === 7 && day === 4) return true;   // Independence Day
+  if (month === 12 && day === 25) return true; // Christmas Day
+
+  // Last Monday of May (Memorial Day)
+  if (month === 5) {
+    const d = new Date(Date.UTC(year, 4, day)); // month is 0-indexed
+    if (d.getUTCDay() === 1) { // it's a Monday
+      // Check it's the last Monday: next Monday would be in June
+      const nextMonday = new Date(Date.UTC(year, 4, day + 7));
+      if (nextMonday.getUTCMonth() !== 4) return true;
+    }
+  }
+
+  // First Monday of September (Labor Day)
+  if (month === 9) {
+    const d = new Date(Date.UTC(year, 8, day));
+    if (d.getUTCDay() === 1 && day <= 7) return true;
+  }
+
+  // Fourth Thursday of November (Thanksgiving)
+  if (month === 11) {
+    const d = new Date(Date.UTC(year, 10, day));
+    if (d.getUTCDay() === 4) { // it's a Thursday
+      // Count which Thursday this is
+      const thursdayNum = Math.ceil(day / 7);
+      if (thursdayNum === 4) return true;
+    }
+  }
+
+  return false;
+}
+
+module.exports = { rawHoursForEntry, isWeekend, isHoliday, classifyWeek, timeStringToMinutes, findOverlappingSegment, normalizeSegmentRange, rangesOverlap, isBreakLocationName, determineWeeklyApprovalForeman, findMostRecentSegmentForeman };
