@@ -23,8 +23,14 @@ function todayStr() {
 }
 
 function sundayOf(dateStr) {
+  // Kept as sundayOf for compatibility but now respects the active
+  // company's week start day (0=Sunday, 1=Monday).
   const d = new Date(dateStr + 'T00:00:00');
-  d.setDate(d.getDate() - d.getDay());
+  const startDay = activeWeekStartDay();
+  const day = d.getDay();
+  // Roll back to the configured start day
+  const diff = (day - startDay + 7) % 7;
+  d.setDate(d.getDate() - diff);
   return d.toISOString().slice(0, 10);
 }
 
@@ -56,6 +62,13 @@ function formatWeekRange(sunday) {
 // boot() always picks one, but defensive nonetheless).
 function activeCompany() {
   return state.companies.find(c => c.id === state.activeCompanyId) || null;
+}
+
+// Returns the configured week start day for the active company.
+// 0 = Sunday (default, Isom Electric), 1 = Monday (South Pointe).
+function activeWeekStartDay() {
+  const c = activeCompany();
+  return c ? (c.weekStartDay || 0) : 0;
 }
 
 // Convenience: the caller's role at the currently active company.
