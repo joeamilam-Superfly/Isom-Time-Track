@@ -146,9 +146,12 @@ async function loadScheduleGrid(weekOf) {
   try {
     // Three weeks: current + 2 ahead. Each week is Mon-Fri (5 days),
     // so we fetch from Monday of this week through Friday of week+2.
-    const week0Days = [1,2,3,4,5].map(i => addDaysStr(weekOf, i));
-    const week1Days = [1,2,3,4,5].map(i => addDaysStr(weekOf, i + 7));
-    const week2Days = [1,2,3,4,5].map(i => addDaysStr(weekOf, i + 14));
+    // When week starts Sunday (default), Mon-Fri = offsets 1-5
+    // When week starts Monday, Mon-Fri = offsets 0-4
+    const startOffset = activeWeekStartDay() === 1 ? 0 : 1;
+    const week0Days = [0,1,2,3,4].map(i => addDaysStr(weekOf, startOffset + i));
+    const week1Days = [0,1,2,3,4].map(i => addDaysStr(weekOf, startOffset + i + 7));
+    const week2Days = [0,1,2,3,4].map(i => addDaysStr(weekOf, startOffset + i + 14));
     const allDays = [...week0Days, ...week1Days, ...week2Days];
 
     const startDate = allDays[0];
