@@ -1,16 +1,6 @@
 const { getAuthContext, unauthorized, forbidden, errorResponse } = require('./_auth-context');
-const { rawHoursForEntry, isWeekend, findOverlappingSegment } = require('./_hours-logic');
+const { rawHoursForEntry, isWeekend, isHoliday, findOverlappingSegment } = require('./_hours-logic');
 const { resolveCompanyRole, supabase } = require('./_company-role');
-
-async function isHoliday(dateStr) {
-  const { data } = await supabase
-    .from('holidays')
-    .select('id')
-    .eq('holiday_date', dateStr)
-    .eq('active', true)
-    .maybeSingle();
-  return !!data;
-}
 
 // Validates that a chosen foreman_id genuinely has a foreman or admin
 // role at this company - an employee picking from the dropdown should
@@ -179,7 +169,7 @@ exports.handler = async (event) => {
     }
 
     const weekend = isWeekend(entryDate);
-    const holiday = await isHoliday(entryDate);
+    const holiday = isHoliday(entryDate);
     const rawHours = rawHoursForEntry(timeIn, timeOut);
     // Holiday double-time: employees working on a recognized holiday are
     // paid 2x, so we store 2x the hours directly in hours_worked so
@@ -301,7 +291,7 @@ exports.handler = async (event) => {
     let finalIsHoliday = existing.is_holiday;
     if (finalEntryDate !== existing.entry_date) {
       finalIsWeekend = isWeekend(finalEntryDate);
-      finalIsHoliday = await isHoliday(finalEntryDate);
+      finalIsHoliday = isHoliday(finalEntryDate);
     }
 
     const updateRow = {
