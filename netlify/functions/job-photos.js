@@ -20,19 +20,19 @@ exports.handler = async (event) => {
 
     let query = supabase
       .from('job_site_photos')
-      .select('id, employee_id, job_location_id, storage_path, description, taken_at, employees(first_name, last_name), job_locations(name)')
+      .select('id, employee_id, job_location_id, storage_path, description, is_receipt, receipt_amount, taken_at, employees(first_name, last_name), job_locations(name)')
       .eq('company_id', companyId)
       .order('taken_at', { ascending: false })
       .limit(100);
 
     if (params.jobLocationId) query = query.eq('job_location_id', params.jobLocationId);
+    if (params.receiptsOnly === 'true') query = query.eq('is_receipt', true);
+    if (params.startDate) query = query.gte('taken_at', params.startDate + 'T00:00:00Z');
+    if (params.endDate) query = query.lte('taken_at', params.endDate + 'T23:59:59Z');
 
     const { data, error } = await query;
     if (error) return errorResponse(error);
 
-    // Generate a short-lived signed URL for each photo, since the bucket
-    // is private (not public) - nobody outside the app should be able to
-    // guess a storage path and view someone's job site photo.
     const withUrls = await Promise.all((data || []).map(async (p) => {
       const { data: signed, error: signError } = await supabase.storage
         .from(PHOTO_BUCKET)
@@ -43,6 +43,8 @@ exports.handler = async (event) => {
         jobLocationId: p.job_location_id,
         jobLocationName: p.job_locations?.name || null,
         description: p.description,
+        isReceipt: p.is_receipt,
+        receiptAmount: p.receipt_amount ? Number(p.receipt_amount) : null,
         takenAt: p.taken_at,
         url: signError ? null : signed.signedUrl,
       };
@@ -60,7 +62,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid request body' }) };
     }
 
-    const { companyId, jobLocationId, description, imageBase64, mimeType } = body;
+    const { companyId, jobLocationId, description, imageBase64, mimeType, isReceipt, receiptAmount } = body;
     if (!companyId) return { statusCode: 400, body: JSON.stringify({ error: 'companyId is required' }) };
 
     const myRole = await resolveCompanyRole(auth.employeeId, companyId, auth.superAdmin);
@@ -109,6 +111,8 @@ exports.handler = async (event) => {
         job_location_id: jobLocationId || null,
         storage_path: storagePath,
         description: description || null,
+        is_receipt: !!isReceipt,
+        receipt_amount: isReceipt && receiptAmount ? Number(receiptAmount) : null,
       })
       .select()
       .single();
