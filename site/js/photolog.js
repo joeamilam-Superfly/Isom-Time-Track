@@ -77,7 +77,8 @@ function renderPhotoGrid(photos) {
 
     return `
       <div class="day-stub" style="padding:0; overflow:hidden;">
-        ${p.url ? `<img src="${p.url}" alt="Job site photo" style="width:100%; display:block; max-height:280px; object-fit:cover;" />` : `<div class="empty-state" style="padding:30px;">Image unavailable</div>`}
+        ${p.isReceipt ? `<div style="background:var(--amber); color:#fff; font-size:11px; font-weight:700; padding:4px 10px; letter-spacing:0.05em;">RECEIPT${p.receiptAmount ? ' &mdash; $' + Number(p.receiptAmount).toFixed(2) : ''}</div>` : ''}
+        ${p.url ? `<img src="${p.url}" alt="${p.isReceipt ? 'Receipt' : 'Job site photo'}" style="width:100%; display:block; max-height:280px; object-fit:cover;" />` : `<div class="empty-state" style="padding:30px;">Image unavailable</div>`}
         <div class="day-stub-body" style="padding:12px 14px;">
           <div class="day-stub-top">
             <div class="day-stub-date">${p.jobLocationName ? escapeHtml(p.jobLocationName) : 'No location'}</div>
@@ -120,7 +121,21 @@ function showAddPhotoDialog() {
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;overflow-y:auto;';
   overlay.innerHTML = `
     <div style="background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;max-height:85vh;overflow-y:auto;">
-      <div style="font-weight:700;font-size:17px;margin-bottom:14px;">Add a job site photo</div>
+      <div style="font-weight:700;font-size:17px;margin-bottom:14px;">Add a photo</div>
+
+      <div class="field" style="margin-bottom:10px;">
+        <label style="font-weight:600; font-size:14px;">Photo type</label>
+        <div style="display:flex; gap:16px; margin-top:6px;">
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="radio" name="photo-type" id="photo-type-jobsite" value="jobsite" checked />
+            Job site photo
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="radio" name="photo-type" id="photo-type-receipt" value="receipt" />
+            Receipt
+          </label>
+        </div>
+      </div>
 
       <div class="field">
         <label for="photo-file-input">Photo</label>
@@ -137,10 +152,17 @@ function showAddPhotoDialog() {
           ${state.jobLocations.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('')}
         </select>
       </div>
-      <div class="field">
-        <label for="photo-description">What's happening in this photo?</label>
+
+      <div class="field" id="photo-description-field">
+        <label for="photo-description" id="photo-description-label">What's happening in this photo?</label>
         <textarea id="photo-description" rows="3" placeholder="Describe the work completed"></textarea>
       </div>
+
+      <div class="field" id="receipt-amount-field" style="display:none;">
+        <label for="photo-receipt-amount">Receipt total ($)</label>
+        <input id="photo-receipt-amount" type="number" min="0" step="0.01" placeholder="0.00" />
+      </div>
+
       <div class="screen-sub" id="photo-timestamp-note"></div>
 
       <div id="photo-dialog-error"></div>
@@ -151,6 +173,20 @@ function showAddPhotoDialog() {
     </div>
   `;
   document.body.appendChild(overlay);
+
+  // Toggle receipt-specific fields when radio changes
+  document.querySelectorAll('input[name="photo-type"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      const isReceipt = document.getElementById('photo-type-receipt').checked;
+      document.getElementById('receipt-amount-field').style.display = isReceipt ? 'block' : 'none';
+      document.getElementById('photo-description-label').textContent = isReceipt
+        ? 'What is this receipt for?'
+        : 'What\'s happening in this photo?';
+      document.getElementById('photo-description').placeholder = isReceipt
+        ? 'e.g. Lumber, electrical supplies, fuel'
+        : 'Describe the work completed';
+    });
+  });
 
   document.getElementById('photo-timestamp-note').textContent =
     `Will be tagged with today's date and time (${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}) automatically.`;
@@ -186,9 +222,19 @@ function showAddPhotoDialog() {
 
     const jobLocationId = document.getElementById('photo-location-select').value || null;
     const description = document.getElementById('photo-description').value.trim();
+    const isReceipt = document.getElementById('photo-type-receipt').checked;
+    const receiptAmount = isReceipt
+      ? (parseFloat(document.getElementById('photo-receipt-amount').value) || null)
+      : null;
     const errorEl = document.getElementById('photo-dialog-error');
     const saveBtn = document.getElementById('photo-dialog-save');
     errorEl.innerHTML = '';
+
+    if (isReceipt && !receiptAmount) {
+      errorEl.innerHTML = errorHtml('Please enter the receipt total amount.');
+      return;
+    }
+
     saveBtn.disabled = true;
     saveBtn.textContent = 'Uploading...';
 
@@ -201,6 +247,8 @@ function showAddPhotoDialog() {
           description,
           imageBase64: compressedImage.base64,
           mimeType: compressedImage.mimeType,
+          isReceipt,
+          receiptAmount,
         }),
       });
       document.body.removeChild(overlay);
