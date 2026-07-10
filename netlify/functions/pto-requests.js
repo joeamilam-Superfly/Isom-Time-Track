@@ -1,5 +1,5 @@
 const { getAuthContext, unauthorized, forbidden, errorResponse } = require('./_auth-context');
-const { isWeekend, findMostRecentSegmentForeman } = require('./_hours-logic');
+const { isWeekend, isHoliday, findMostRecentSegmentForeman } = require('./_hours-logic');
 const { resolveCompanyRole, supabase } = require('./_company-role');
 
 // Default approver for leave requests when an employee has no foreman
@@ -46,16 +46,6 @@ function dateRange(startDate, endDate) {
     cur = addDaysStr(cur, 1);
   }
   return dates;
-}
-
-async function isHoliday(dateStr) {
-  const { data } = await supabase
-    .from('holidays')
-    .select('id')
-    .eq('holiday_date', dateStr)
-    .eq('active', true)
-    .maybeSingle();
-  return !!data;
 }
 
 exports.handler = async (event) => {
@@ -383,7 +373,7 @@ exports.handler = async (event) => {
     const ptoDates = [];
     for (const d of allDates) {
       if (isWeekend(d)) continue;
-      if (await isHoliday(d)) continue;
+      if (isHoliday(d)) continue;
       ptoDates.push(d);
     }
 
