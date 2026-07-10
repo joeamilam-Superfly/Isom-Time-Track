@@ -60,7 +60,7 @@ exports.handler = async (event) => {
   // company, not just ones they're separately assigned to).
   const { data: roles, error: rolesError } = await supabase
     .from('employee_company_roles')
-    .select('company_id, role, foreman_id, active, companies(id, name)')
+    .select('company_id, role, foreman_id, active, companies(id, name, week_start_day)')
     .eq('employee_id', employee.id)
     .eq('active', true);
 
@@ -70,14 +70,14 @@ exports.handler = async (event) => {
 
   let companies = (roles || [])
     .filter(r => r.companies)
-    .map(r => ({ id: r.companies.id, name: r.companies.name, role: r.role, defaultForemanId: r.foreman_id }));
+    .map(r => ({ id: r.companies.id, name: r.companies.name, role: r.role, defaultForemanId: r.foreman_id, weekStartDay: r.companies.week_start_day || 0 }));
 
   if (employee.super_admin) {
-    const { data: allCompanies } = await supabase.from('companies').select('id, name').eq('active', true);
+    const { data: allCompanies } = await supabase.from('companies').select('id, name, week_start_day').eq('active', true);
     const ownedIds = new Set(companies.map(c => c.id));
     for (const c of allCompanies || []) {
       if (!ownedIds.has(c.id)) {
-        companies.push({ id: c.id, name: c.name, role: 'admin', defaultForemanId: null }); // super admin acts as admin anywhere they don't have an explicit role
+        companies.push({ id: c.id, name: c.name, role: 'admin', defaultForemanId: null, weekStartDay: c.week_start_day || 0 });
       }
     }
   }
