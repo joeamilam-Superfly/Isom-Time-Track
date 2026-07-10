@@ -125,13 +125,13 @@ function showAddPhotoDialog() {
 
       <div class="field" style="margin-bottom:10px;">
         <label style="font-weight:600; font-size:14px;">Photo type</label>
-        <div style="display:flex; gap:16px; margin-top:6px;">
-          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-            <input type="radio" name="photo-type" id="photo-type-jobsite" value="jobsite" checked />
+        <div style="display:flex; gap:24px; margin-top:8px; align-items:center;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; white-space:nowrap;">
+            <input type="radio" name="photo-type" id="photo-type-jobsite" value="jobsite" checked style="width:18px; height:18px; flex-shrink:0;" />
             Job site photo
           </label>
-          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-            <input type="radio" name="photo-type" id="photo-type-receipt" value="receipt" />
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; white-space:nowrap;">
+            <input type="radio" name="photo-type" id="photo-type-receipt" value="receipt" style="width:18px; height:18px; flex-shrink:0;" />
             Receipt
           </label>
         </div>
