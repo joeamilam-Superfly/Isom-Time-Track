@@ -144,32 +144,39 @@ async function loadScheduleGrid(weekOf) {
   listEl.innerHTML = loadingHtml();
 
   try {
-    const weekDays = [1, 2, 3, 4, 5].map(i => addDaysStr(weekOf, i)); // Mon-Fri
+    // Three weeks: current + 2 ahead. Each week is Mon-Fri (5 days),
+    // so we fetch from Monday of this week through Friday of week+2.
+    const week0Days = [1,2,3,4,5].map(i => addDaysStr(weekOf, i));
+    const week1Days = [1,2,3,4,5].map(i => addDaysStr(weekOf, i + 7));
+    const week2Days = [1,2,3,4,5].map(i => addDaysStr(weekOf, i + 14));
+    const allDays = [...week0Days, ...week1Days, ...week2Days];
+
+    const startDate = allDays[0];
+    const endDate = allDays[allDays.length - 1];
 
     const [peopleData, scheduleData, locationsData] = await Promise.all([
       api(withCompany('/dashboard')),
-      api(withCompany(`/schedule?startDate=${weekDays[0]}&endDate=${weekDays[4]}`)),
+      api(withCompany(`/schedule?startDate=${startDate}&endDate=${endDate}`)),
       api(withCompany('/job-locations')),
     ]);
 
     state.jobLocations = locationsData.locations || [];
-    renderScheduleGrid(peopleData.people || [], scheduleData.entries || [], weekDays, scheduleData.pendingLeave || []);
+    state.scheduleWeekDays = week0Days; // dialog still advances through single week
+    renderScheduleGrid(peopleData.people || [], scheduleData.entries || [], week0Days, week1Days, week2Days, scheduleData.pendingLeave || []);
   } catch (err) {
     listEl.innerHTML = errorHtml(err.message);
   }
 }
 
-function renderScheduleGrid(people, entries, weekDays, pendingLeave) {
+function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pendingLeave) {
   const listEl = document.getElementById('approvals-list');
+  const allDays = [...week0Days, ...week1Days, ...week2Days];
 
   if (people.length === 0) {
     listEl.innerHTML = `<div class="empty-state"><div class="icon">&#128197;</div>No one to schedule yet.</div>`;
     return;
   }
 
-  // Group entries by employee+date for quick lookup. A cell can have
-  // multiple entries (multiple job sites in one day), same as time
-  // segments - show all of them, comma-joined, in the grid cell.
   const entriesByKey = {};
   for (const e of entries) {
     const key = `${e.employee_id}|${e.scheduled_date}`;
@@ -177,81 +184,125 @@ function renderScheduleGrid(people, entries, weekDays, pendingLeave) {
     entriesByKey[key].push(e);
   }
 
-  // Build a Set of 'employeeId|date' keys for days covered by a pending
-  // leave request, so the cell renderer can check in O(1) without
-  // iterating over all requests for every cell.
   const pendingLeaveKeys = new Set();
   for (const req of (pendingLeave || [])) {
     let d = req.start_date;
     while (d <= req.end_date) {
       pendingLeaveKeys.add(`${req.employee_id}|${d}`);
-      // Advance by one day
       const next = new Date(d + 'T00:00:00Z');
       next.setUTCDate(next.getUTCDate() + 1);
       d = next.toISOString().slice(0, 10);
     }
   }
 
-  const dayLabels = weekDays.map(d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' }));
+  function weekLabel(days) {
+    return days[0].slice(5).replace('-','/') + ' \u2013 ' + days[4].slice(5).replace('-','/');
+  }
+
+  function cellHtml(personId, d, idx) {
+    const key = `${personId}|${d}`;
+    const dayEntries = entriesByKey[key] || [];
+    const isOff = dayEntries.some(e => e.job_locations?.name?.toUpperCase() === 'OFF');
+    const hasPendingLeave = pendingLeaveKeys.has(key);
+    const cellText = dayEntries.length > 0
+      ? dayEntries.map(e => (e.job_locations ? escapeHtml(e.job_locations.name) : '(no site)') + (e.deviation_reason ? ' \u26a0' : '')).join(', ')
+      : hasPendingLeave ? '\u23f3 Leave pending' : '';
+    const cellBg = isOff ? '#e53e3e' : hasPendingLeave && !dayEntries.length ? '#fef3c7' : dayEntries.length ? 'var(--paper-dim)' : 'transparent';
+    const cellColor = isOff ? '#fff' : hasPendingLeave && !dayEntries.length ? '#92400e' : 'inherit';
+    const cellBorder = isOff || dayEntries.length ? 'transparent' : hasPendingLeave ? '#fbbf24' : 'var(--line)';
+    const weekBorder = (idx === 5 || idx === 10) ? 'border-left:2px solid var(--amber);' : '';
+    return `<td style="padding:3px; border-bottom:1px solid var(--line); cursor:pointer; vertical-align:top; ${weekBorder}" data-grid-cell="${personId}|${d}">
+      <div style="min-height:30px; padding:3px 4px; border-radius:4px; background:${cellBg}; border:1px dashed ${cellBorder}; color:${cellColor}; font-weight:${isOff?'600':'normal'}; font-size:11px;">
+        ${cellText || '<span style="color:var(--line);">+</span>'}
+      </div>
+    </td>`;
+  }
+
+  function personRowHtml(p) {
+    return `<tr>
+      <td style="padding:5px 8px; border-bottom:1px solid var(--line); position:sticky; left:0; background:var(--paper); white-space:nowrap; font-size:12px; min-width:120px; max-width:140px; overflow:hidden; text-overflow:ellipsis;">
+        ${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)}
+      </td>
+      ${allDays.map((d, i) => cellHtml(p.id, d, i)).join('')}
+    </tr>`;
+  }
+
+  // Group by foreman - foremen/admins are section headers with their crew below
+  const foremanMap = {};
+  for (const p of people) {
+    if (p.role === 'foreman' || p.role === 'admin') {
+      if (!foremanMap[p.id]) foremanMap[p.id] = { foreman: p, crew: [] };
+    }
+  }
+  const unassigned = [];
+  for (const p of people) {
+    if (p.role === 'foreman' || p.role === 'admin') continue;
+    if (p.foremanId && foremanMap[p.foremanId]) {
+      foremanMap[p.foremanId].crew.push(p);
+    } else {
+      unassigned.push(p);
+    }
+  }
+
+  const colCount = allDays.length + 1;
+  function sectionHeaderHtml(name, label) {
+    return `<tr>
+      <td colspan="${colCount}" style="padding:6px 8px; background:var(--ink); color:#fff; font-weight:700; font-size:12px; letter-spacing:0.03em; border-top:2px solid var(--amber);">
+        ${escapeHtml(name)} <span style="font-weight:400; opacity:0.7;">(${label})</span>
+      </td>
+    </tr>`;
+  }
+
+  const sections = Object.values(foremanMap)
+    .sort((a, b) => a.foreman.lastName.localeCompare(b.foreman.lastName))
+    .map(g => `
+      ${sectionHeaderHtml(g.foreman.firstName + ' ' + g.foreman.lastName, g.foreman.role === 'admin' ? 'Admin' : 'Foreman')}
+      ${personRowHtml(g.foreman)}
+      ${g.crew.sort((a,b) => a.lastName.localeCompare(b.lastName)).map(p => personRowHtml(p)).join('')}
+    `).join('');
+
+  const unassignedSection = unassigned.length ? `
+    ${sectionHeaderHtml('Unassigned', 'no foreman set')}
+    ${unassigned.sort((a,b) => a.lastName.localeCompare(b.lastName)).map(p => personRowHtml(p)).join('')}
+  ` : '';
 
   listEl.innerHTML = `
     <div class="schedule-grid-fullwidth">
-      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <table style="width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed;">
         <thead>
           <tr>
-            <th style="text-align:left; padding:8px 6px; border-bottom:2px solid var(--line); position:sticky; left:0; background:var(--paper); min-width:110px;">Name</th>
-            ${weekDays.map((d, i) => `<th style="text-align:left; padding:8px 6px; border-bottom:2px solid var(--line); min-width:120px;">${dayLabels[i]}<br><span style="font-weight:400; color:var(--ink-soft);">${d.slice(5)}</span></th>`).join('')}
+            <th style="text-align:left; padding:6px 8px; border-bottom:2px solid var(--line); position:sticky; left:0; background:var(--paper); width:130px;"></th>
+            ${[week0Days, week1Days, week2Days].map((wk, wi) => `
+              <th colspan="5" style="text-align:center; padding:4px 6px; border-bottom:2px solid var(--line); ${wi > 0 ? 'border-left:2px solid var(--amber);' : ''} background:var(--paper-dim); font-size:11px; font-weight:700;">
+                Week ${wi + 1} &nbsp; ${weekLabel(wk)}
+              </th>`).join('')}
+          </tr>
+          <tr>
+            <th style="position:sticky; left:0; background:var(--paper); border-bottom:1px solid var(--line); padding:4px 8px; font-size:11px; color:var(--ink-soft);">Name</th>
+            ${allDays.map((d, i) => `
+              <th style="text-align:left; padding:3px 3px; border-bottom:1px solid var(--line); font-size:10px; font-weight:600; ${i===5||i===10?'border-left:2px solid var(--amber);':''}">
+                ${new Date(d+'T00:00:00').toLocaleDateString('en-US',{weekday:'short'})}<br>
+                <span style="font-weight:400; color:var(--ink-soft);">${d.slice(5)}</span>
+              </th>`).join('')}
           </tr>
         </thead>
-        <tbody>
-          ${people.map(p => `
-            <tr>
-              <td style="padding:8px 6px; border-bottom:1px solid var(--line); position:sticky; left:0; background:var(--paper); font-weight:600;">${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)}</td>
-              ${weekDays.map(d => {
-                const key = `${p.id}|${d}`;
-                const dayEntries = entriesByKey[key] || [];
-                const isOff = dayEntries.some(e => e.job_locations?.name?.toUpperCase() === 'OFF');
-                const hasPendingLeave = pendingLeaveKeys.has(key);
-                const cellText = dayEntries.length > 0
-                  ? dayEntries.map(e => {
-                    const name = e.job_locations ? escapeHtml(e.job_locations.name) : '(no site)';
-                    const deviationFlag = e.deviation_reason ? ' ⚠' : '';
-                    return name + deviationFlag;
-                  }).join(', ')
-                  : hasPendingLeave ? '⏳ Leave pending' : '';
-                const cellBg = isOff
-                  ? '#e53e3e'
-                  : hasPendingLeave && dayEntries.length === 0
-                    ? '#fef3c7'  // amber-50 equivalent for pending leave with no assignment yet
-                    : dayEntries.length > 0
-                      ? 'var(--paper-dim)'
-                      : 'transparent';
-                const cellColor = isOff ? '#fff' : hasPendingLeave && dayEntries.length === 0 ? '#92400e' : 'inherit';
-                const cellBorder = isOff || dayEntries.length > 0 ? 'transparent' : hasPendingLeave ? '#fbbf24' : 'var(--line)';
-                return `<td style="padding:6px; border-bottom:1px solid var(--line); cursor:pointer; vertical-align:top;" data-grid-cell="${p.id}|${d}">
-                  <div style="min-height:36px; padding:4px 6px; border-radius:6px; background:${cellBg}; border:1px dashed ${cellBorder}; color:${cellColor}; font-weight:${isOff ? '600' : 'normal'};" title="${hasPendingLeave ? 'Leave request pending approval' : ''}">
-                    ${cellText || '<span style="color:var(--ink-soft);">+ assign</span>'}
-                  </div>
-                </td>`;
-              }).join('')}
-            </tr>
-          `).join('')}
-        </tbody>
+        <tbody>${sections}${unassignedSection}</tbody>
       </table>
     </div>
   `;
 
-    state.scheduleWeekDays = weekDays; // store so showScheduleCellDialog can advance through Mon-Fri
-
   listEl.querySelectorAll('[data-grid-cell]').forEach(cell => {
     cell.addEventListener('click', () => {
-      const [employeeId, date] = cell.getAttribute('data-grid-cell').split('|');
-      const key = `${employeeId}|${date}`;
-      const person = people.find(p => p.id === employeeId);
-      showScheduleCellDialog(employeeId, person, date, entriesByKey[key] || []);
+      const [personId, date] = cell.getAttribute('data-grid-cell').split('|');
+      const allPeople = [...Object.values(foremanMap).flatMap(g => [g.foreman, ...g.crew]), ...unassigned];
+      const person = allPeople.find(p => p.id === personId);
+      // Set weekDays to the week containing this date so dialog navigation works
+      state.scheduleWeekDays = [week0Days, week1Days, week2Days].find(wk => wk.includes(date)) || week0Days;
+      showScheduleCellDialog(personId, person, date, entriesByKey[`${personId}|${date}`] || []);
     });
   });
 }
+
 
 // Refreshes just the schedule grid in place after an assignment save,
 // preserving the scroll position so the admin stays at the same row
@@ -259,17 +310,23 @@ function renderScheduleGrid(people, entries, weekDays, pendingLeave) {
 async function refreshScheduleGridInPlace() {
   const listEl = document.getElementById('approvals-list');
   if (!listEl) return;
-  const weekDays = state.scheduleWeekDays;
-  if (!weekDays || weekDays.length === 0) return;
+  const week0Days = state.scheduleWeekDays;
+  if (!week0Days || week0Days.length === 0) return;
+  // Derive week 1 and 2 from week 0's Monday
+  const monday = week0Days[0];
+  const week1Days = [1,2,3,4,5].map(i => addDaysStr(monday, i + 7));
+  const week2Days = [1,2,3,4,5].map(i => addDaysStr(monday, i + 14));
+  const startDate = week0Days[0];
+  const endDate = week2Days[4];
   try {
     const scrollY = window.scrollY;
     const [peopleData, scheduleData, locationsData] = await Promise.all([
       api(withCompany('/dashboard')),
-      api(withCompany(`/schedule?startDate=${weekDays[0]}&endDate=${weekDays[4]}`)),
+      api(withCompany(`/schedule?startDate=${startDate}&endDate=${endDate}`)),
       api(withCompany('/job-locations')),
     ]);
     state.jobLocations = locationsData.locations || [];
-    renderScheduleGrid(peopleData.people || [], scheduleData.entries || [], weekDays, scheduleData.pendingLeave || []);
+    renderScheduleGrid(peopleData.people || [], scheduleData.entries || [], week0Days, week1Days, week2Days, scheduleData.pendingLeave || []);
     window.scrollTo(0, scrollY);
   } catch (err) {
     console.error('Grid refresh failed:', err);
