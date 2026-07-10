@@ -164,15 +164,25 @@ function renderJobLocationsAdmin(locations) {
 
   const listHtml = locations.length === 0
     ? `<div class="empty-state" style="padding:20px;">No job locations yet.</div>`
-    : locations.map(loc => `
-      <div class="employee-row">
-        <div style="${loc.active ? '' : 'opacity:0.55;'}">
-          <div class="employee-name">${escapeHtml(loc.name)}${!loc.active ? ' (deactivated)' : ''}</div>
-          ${loc.address ? `<div class="employee-meta">${escapeHtml(loc.address)}</div>` : ''}
-        </div>
-        <button class="btn btn-sm ${loc.active ? 'btn-danger' : 'btn-primary'}" data-toggle-loc="${loc.id}" data-currently-active="${loc.active}">${loc.active ? 'Deactivate' : 'Reactivate'}</button>
-      </div>
-    `).join('');
+    : locations.map(loc => {
+        const hasLaborBudget = loc.budget_amount != null;
+        const hasMaterialsBudget = loc.budget_materials != null;
+        const hasBudget = hasLaborBudget || hasMaterialsBudget;
+        return `
+          <div class="employee-row" style="align-items:flex-start; padding:10px 0;">
+            <div style="${loc.active ? '' : 'opacity:0.55;'} flex:1;">
+              <div class="employee-name">${escapeHtml(loc.name)}${!loc.active ? ' (deactivated)' : ''}</div>
+              ${loc.address ? `<div class="employee-meta">${escapeHtml(loc.address)}</div>` : ''}
+              ${hasLaborBudget ? `<div class="employee-meta" style="color:var(--ink-soft);">Labor: $${Number(loc.budget_amount).toLocaleString('en-US',{minimumFractionDigits:2})} <span id="burn-labor-${loc.id}" style="font-style:italic;">Loading...</span></div>` : ''}
+              ${hasMaterialsBudget ? `<div class="employee-meta" style="color:var(--ink-soft);">Materials: $${Number(loc.budget_materials).toLocaleString('en-US',{minimumFractionDigits:2})} <span id="burn-materials-${loc.id}" style="font-style:italic;">Loading...</span></div>` : ''}
+            </div>
+            <div style="display:flex; gap:6px; flex-shrink:0;">
+              <button class="btn btn-sm btn-ghost" data-edit-budget="${loc.id}" data-budget-amount="${loc.budget_amount || ''}" data-budget-materials="${loc.budget_materials || ''}">Budget</button>
+              <button class="btn btn-sm ${loc.active ? 'btn-danger' : 'btn-primary'}" data-toggle-loc="${loc.id}" data-currently-active="${loc.active}">${loc.active ? 'Off' : 'On'}</button>
+            </div>
+          </div>
+        `;
+      }).join('');
 
   el.innerHTML = `
     <button class="btn btn-ghost btn-sm" id="add-location-btn" style="margin-bottom:14px;">+ Add job location</button>
@@ -181,12 +191,95 @@ function renderJobLocationsAdmin(locations) {
 
   document.getElementById('add-location-btn').addEventListener('click', showAddJobLocationDialog);
 
+  // Load budget burn for locations that have any budget set
+  locations.filter(l => (l.budget_amount != null || l.budget_materials != null) && l.active).forEach(loc => {
+    loadBudgetBurn(loc.id);
+  });
+
   el.querySelectorAll('[data-toggle-loc]').forEach(btn => {
     btn.addEventListener('click', () => {
       const locationId = btn.getAttribute('data-toggle-loc');
       const currentlyActive = btn.getAttribute('data-currently-active') === 'true';
       toggleJobLocationActive(locationId, !currentlyActive);
     });
+  });
+
+  el.querySelectorAll('[data-edit-budget]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const locationId = btn.getAttribute('data-edit-budget');
+      const budgetAmount = btn.getAttribute('data-budget-amount');
+      const budgetMaterials = btn.getAttribute('data-budget-materials');
+      const loc = locations.find(l => l.id === locationId);
+      showEditBudgetDialog(locationId, loc ? loc.name : '', budgetAmount, budgetMaterials);
+    });
+  });
+}
+
+async function loadBudgetBurn(locationId) {
+  try {
+    const data = await api(withCompany(`/job-locations?budgetBurn=true&locationId=${locationId}`));
+
+    function burnText(bucket, label) {
+      if (!bucket || bucket.budget == null) return;
+      const el = document.getElementById(`burn-${label}-${locationId}`);
+      if (!el) return;
+      const color = bucket.overBudget ? '#e53e3e' : bucket.warning ? '#d97706' : 'var(--ink-soft)';
+      const icon = bucket.overBudget ? ' ⚠ OVER' : bucket.warning ? ' ⚠' : '';
+      el.textContent = `— $${bucket.spent.toFixed(2)} spent (${bucket.percentSpent}%)${icon}`;
+      el.style.color = color;
+    }
+
+    burnText(data.labor, 'labor');
+    burnText(data.materials, 'materials');
+  } catch (err) {
+    ['labor', 'materials'].forEach(t => {
+      const el = document.getElementById(`burn-${t}-${locationId}`);
+      if (el) el.textContent = '';
+    });
+  }
+}
+
+function showEditBudgetDialog(locationId, locationName, currentBudgetAmount, currentBudgetMaterials) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;max-width:380px;width:100%;">
+      <div style="font-weight:700;font-size:17px;margin-bottom:4px;">Set project budgets</div>
+      <div class="screen-sub" style="margin-bottom:14px;">${escapeHtml(locationName)}</div>
+      <div class="field">
+        <label for="edit-budget-labor">Labor budget ($, optional)</label>
+        <input id="edit-budget-labor" type="number" min="0" step="0.01" placeholder="0.00" value="${currentBudgetAmount || ''}" />
+        <div class="screen-sub">Burns down as employee hours × bill rate are logged here.</div>
+      </div>
+      <div class="field">
+        <label for="edit-budget-materials">Materials budget ($, optional)</label>
+        <input id="edit-budget-materials" type="number" min="0" step="0.01" placeholder="0.00" value="${currentBudgetMaterials || ''}" />
+        <div class="screen-sub">Burns down as receipts are submitted against this location.</div>
+      </div>
+      <div id="edit-budget-error"></div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-ghost" id="edit-budget-cancel">Cancel</button>
+        <button class="btn btn-primary" id="edit-budget-save">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('edit-budget-cancel').addEventListener('click', () => document.body.removeChild(overlay));
+  document.getElementById('edit-budget-save').addEventListener('click', async () => {
+    const budgetAmount = document.getElementById('edit-budget-labor').value.trim() || null;
+    const budgetMaterials = document.getElementById('edit-budget-materials').value.trim() || null;
+    const errorEl = document.getElementById('edit-budget-error');
+    try {
+      await api('/job-locations', {
+        method: 'PUT',
+        body: JSON.stringify({ companyId: state.activeCompanyId, locationId, budgetAmount, budgetMaterials }),
+      });
+      document.body.removeChild(overlay);
+      loadJobLocationsAdmin();
+    } catch (err) {
+      errorEl.innerHTML = errorHtml(err.message);
+    }
   });
 }
 
@@ -219,6 +312,16 @@ function showAddJobLocationDialog() {
         <label for="new-loc-address">Address (optional)</label>
         <input id="new-loc-address" type="text" />
       </div>
+      <div class="field">
+        <label for="new-loc-budget">Labor budget ($, optional)</label>
+        <input id="new-loc-budget" type="number" min="0" step="0.01" placeholder="0.00" />
+        <div class="screen-sub">Burns down as employee hours × bill rate are logged here.</div>
+      </div>
+      <div class="field">
+        <label for="new-loc-budget-materials">Materials budget ($, optional)</label>
+        <input id="new-loc-budget-materials" type="number" min="0" step="0.01" placeholder="0.00" />
+        <div class="screen-sub">Burns down as receipts are submitted against this location.</div>
+      </div>
       <div id="new-loc-error"></div>
       <div class="btn-row" style="margin-top:8px;">
         <button class="btn btn-ghost" id="new-loc-cancel">Cancel</button>
@@ -233,6 +336,8 @@ function showAddJobLocationDialog() {
   document.getElementById('new-loc-save').addEventListener('click', async () => {
     const name = document.getElementById('new-loc-name').value.trim();
     const address = document.getElementById('new-loc-address').value.trim();
+    const budgetAmount = document.getElementById('new-loc-budget').value.trim() || null;
+    const budgetMaterials = document.getElementById('new-loc-budget-materials').value.trim() || null;
     const errorEl = document.getElementById('new-loc-error');
     errorEl.innerHTML = '';
 
@@ -244,7 +349,7 @@ function showAddJobLocationDialog() {
     try {
       const result = await api('/job-locations', {
         method: 'POST',
-        body: JSON.stringify({ companyId: state.activeCompanyId, name, address }),
+        body: JSON.stringify({ companyId: state.activeCompanyId, name, address, budgetAmount, budgetMaterials }),
       });
 
       if (result.needsConfirmation) {
@@ -254,7 +359,7 @@ function showAddJobLocationDialog() {
         if (!proceed) return;
         await api('/job-locations', {
           method: 'POST',
-          body: JSON.stringify({ companyId: state.activeCompanyId, name, address, confirmNew: true }),
+          body: JSON.stringify({ companyId: state.activeCompanyId, name, address, budgetAmount, budgetMaterials, confirmNew: true }),
         });
       }
 
@@ -282,6 +387,57 @@ function renderAdminSummary(summaries) {
       <div class="employee-name">${s.totals.weeklyHours.toFixed(2)}h</div>
     </div>
   `).join('');
+
+  // Show budget burn for locations that appear in this week's entries and have a budget.
+  // Collect unique job location IDs from all segments this week.
+  const locationIds = [...new Set(
+    summaries.flatMap(s => s.days.flatMap(d => d.segments.map(seg => seg.jobLocationId).filter(Boolean)))
+  )];
+
+  if (locationIds.length > 0) {
+    const burnSection = document.createElement('div');
+    burnSection.style.cssText = 'margin-top:20px; border-top:1px solid var(--line); padding-top:14px;';
+    burnSection.innerHTML = `<div class="screen-sub" style="font-weight:600; color:var(--ink); margin-bottom:10px;">Project Budget Status</div><div id="admin-budget-burns">${loadingHtml()}</div>`;
+    el.appendChild(burnSection);
+
+    Promise.all(locationIds.map(id => api(withCompany(`/job-locations?budgetBurn=true&locationId=${id}`)).catch(() => null)))
+      .then(results => {
+        const withBudget = results.filter(r => r && (r.labor?.budget != null || r.materials?.budget != null));
+        const burnEl = document.getElementById('admin-budget-burns');
+        if (!burnEl) return;
+        if (withBudget.length === 0) {
+          burnEl.innerHTML = `<div class="screen-sub">No budgeted locations in this week's entries.</div>`;
+          return;
+        }
+
+        function bucketBar(bucket, label) {
+          if (!bucket || bucket.budget == null) return '';
+          const pct = bucket.percentSpent;
+          const barColor = bucket.overBudget ? '#e53e3e' : bucket.warning ? '#d97706' : 'var(--amber)';
+          const flagLabel = bucket.overBudget ? ' ⚠ Over budget' : bucket.warning ? ' ⚠ Low budget' : '';
+          return `
+            <div style="margin-bottom:8px;">
+              <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:3px;">
+                <span style="color:var(--ink-soft);">${label}</span>
+                <span style="color:${barColor}; font-weight:${flagLabel?'700':'400'};">$${bucket.spent.toFixed(2)} / $${bucket.budget.toFixed(2)}${flagLabel}</span>
+              </div>
+              <div style="background:var(--line); border-radius:4px; height:5px; overflow:hidden;">
+                <div style="background:${barColor}; width:${Math.min(pct, 100)}%; height:100%; border-radius:4px;"></div>
+              </div>
+              <div style="font-size:11px; color:var(--ink-soft); margin-top:2px;">$${Math.max(bucket.remaining, 0).toFixed(2)} remaining (${Math.min(pct, 100)}%)</div>
+            </div>
+          `;
+        }
+
+        burnEl.innerHTML = withBudget.map(r => `
+          <div style="margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--line);">
+            <div style="font-weight:600; font-size:13px; margin-bottom:6px;">${escapeHtml(r.locationName)}</div>
+            ${bucketBar(r.labor, 'Labor')}
+            ${bucketBar(r.materials, 'Materials')}
+          </div>
+        `).join('');
+      });
+  }
 }
 
 async function exportWeekCsv(weekOf, summaries) {
