@@ -2,6 +2,12 @@ const { getAuthContext, unauthorized, forbidden, errorResponse } = require('./_a
 const { isWeekend, findMostRecentSegmentForeman } = require('./_hours-logic');
 const { resolveCompanyRole, supabase } = require('./_company-role');
 
+// Default approver for leave requests when an employee has no foreman
+// assigned and no recent segments to determine one from. All unassigned
+// employees route to Mitzi Cane rather than going to null (which would
+// leave the request with no one to approve it).
+const DEFAULT_FALLBACK_APPROVER_ID = '81572b0f-6b18-4a53-964a-f44091f52d2c';
+
 // Finds the OFF job location at a company, creating it if it doesn't
 // exist yet. This is called automatically when leave is approved so the
 // grid shows the employee as OFF without requiring any manual setup.
@@ -181,7 +187,8 @@ exports.handler = async (event) => {
         .eq('company_id', companyId)
         .maybeSingle();
 
-      const assignedForemanId = findMostRecentSegmentForeman(recentSegments || [], roleRowP ? roleRowP.foreman_id : null);
+      const assignedForemanId = findMostRecentSegmentForeman(recentSegments || [], roleRowP ? roleRowP.foreman_id : null)
+        || DEFAULT_FALLBACK_APPROVER_ID;
 
       const { data, error } = await supabase
         .from('pto_requests')
@@ -269,7 +276,8 @@ exports.handler = async (event) => {
       .eq('company_id', companyId)
       .maybeSingle();
 
-    const assignedForemanId = findMostRecentSegmentForeman(recentSegments || [], roleRow ? roleRow.foreman_id : null);
+    const assignedForemanId = findMostRecentSegmentForeman(recentSegments || [], roleRow ? roleRow.foreman_id : null)
+      || DEFAULT_FALLBACK_APPROVER_ID;
 
     const { data, error } = await supabase
       .from('pto_requests')
