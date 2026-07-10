@@ -134,3 +134,69 @@ function scheduleChangeRowHtml(c) {
     </div>
   `;
 }
+
+// Checks for pending leave requests assigned to this foreman/admin,
+// updates the badge count on the Leave tab, and (once per calendar day)
+// shows a banner alerting them that requests need a decision.
+async function checkPendingLeaveRequests() {
+  const role = currentCompanyRole();
+  if (role !== 'foreman' && role !== 'admin') return;
+
+  try {
+    const data = await api(withCompany('/pto-requests?status=pending'));
+    const pending = (data.requests || []).filter(r => r.assigned_foreman_id === state.employee.id);
+    state.pendingLeaveRequestCount = pending.length;
+
+    if (pending.length === 0) return;
+
+    // Re-render just the tab bar to show the updated badge without a
+    // full page re-render - find and replace just the nav-tabs element.
+    const navTabs = document.querySelector('.nav-tabs');
+    if (navTabs) {
+      const activeTab = document.querySelector('.nav-tab.active');
+      const activeId = activeTab ? activeTab.getAttribute('data-tab') : 'week';
+      navTabs.outerHTML = roleTabsHtml(activeId);
+      attachRoleTabHandlers();
+    }
+
+    // Show the once-per-day banner. Key includes the date so it resets
+    // each calendar day, and the employee ID so different users on the
+    // same device each get their own flag.
+    const today = new Date().toISOString().slice(0, 10);
+    const bannerKey = `leave_pending_banner_${state.employee.id}_${today}`;
+    if (localStorage.getItem(bannerKey)) return;
+    localStorage.setItem(bannerKey, '1');
+
+    showPendingLeaveBanner(pending.length);
+  } catch (err) {
+    console.error('Could not check pending leave requests:', err);
+  }
+}
+
+function showPendingLeaveBanner(count) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.6);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;max-width:400px;width:100%;">
+      <div style="font-weight:700;font-size:17px;margin-bottom:6px;">Leave request${count > 1 ? 's' : ''} awaiting your decision</div>
+      <div class="screen-sub" style="margin-bottom:16px;">
+        You have <strong>${count}</strong> pending leave request${count > 1 ? 's' : ''} that need${count === 1 ? 's' : ''} to be approved or denied.
+        Go to the <strong>Leave</strong> tab to review ${count > 1 ? 'them' : 'it'}.
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="leave-banner-later">Remind me later</button>
+        <button class="btn btn-primary" id="leave-banner-go">Go to Leave tab</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('leave-banner-later').addEventListener('click', () => {
+    document.body.removeChild(overlay);
+  });
+
+  document.getElementById('leave-banner-go').addEventListener('click', () => {
+    document.body.removeChild(overlay);
+    render('timeoff');
+  });
+}
