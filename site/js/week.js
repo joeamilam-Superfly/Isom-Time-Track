@@ -46,6 +46,7 @@ async function renderWeek(opts) {
   }
 
   checkPendingScheduleChanges();
+  checkPendingLeaveRequests();
 }
 
 function renderWeekSummary(summary) {
@@ -183,7 +184,14 @@ function attachTopbarHandlers() {
 
 function roleTabsHtml(active) {
   const role = currentCompanyRole();
-  const tabs = [{ id: 'week', label: 'My Hours' }, { id: 'timeoff', label: 'Leave' }, { id: 'photolog', label: 'Photos' }];
+  const pendingCount = state.pendingLeaveRequestCount || 0;
+  const tabs = [
+    { id: 'week', label: 'My Hours' },
+    { id: 'timeoff', label: pendingCount > 0
+        ? `Leave <span style="background:#e53e3e;color:#fff;border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;margin-left:4px;">${pendingCount}</span>`
+        : 'Leave' },
+    { id: 'photolog', label: 'Photos' },
+  ];
   if (role === 'foreman' || role === 'admin') {
     tabs.push({ id: 'approvals', label: 'Approvals' });
     tabs.push({ id: 'team', label: 'Team' });
