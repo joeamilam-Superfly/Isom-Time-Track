@@ -437,6 +437,11 @@ async function showEditProfileDialog(employee) {
         <input id="edit-start-date" type="date" value="${employee.employmentStartDate || ''}" />
         <div class="screen-sub">Used to auto-calculate annual PTO allotment on their work anniversary.</div>
       </div>
+      <div class="field">
+        <label for="edit-bill-rate">Bill rate ($/hr, optional)</label>
+        <input id="edit-bill-rate" type="number" min="0" step="0.01" placeholder="0.00" value="${employee.billRate || ''}" />
+        <div class="screen-sub">Used to calculate budget burn against job locations. Not visible to the employee.</div>
+      </div>
 
       <div id="pto-calc-section" style="display:none; background:var(--paper-dim); border-radius:8px; padding:14px; margin-top:4px;">
         <div style="font-size:13px; font-weight:600; margin-bottom:10px;" id="pto-calc-label"></div>
@@ -467,8 +472,9 @@ async function showEditProfileDialog(employee) {
     const currentYear = new Date().getFullYear();
     const yearsOfService = currentYear - startYear;
     if (yearsOfService < 1) return 0;
-    if (yearsOfService >= 5) return 80; // 10 days
-    return (5 + (yearsOfService - 1)) * 8; // 1yr=40h, 2yr=48h, 3yr=56h, 4yr=64h
+    if (yearsOfService >= 10) return 15 * 8; // 120h cap at 10+ years (15 days)
+    if (yearsOfService >= 5) return (10 + (yearsOfService - 5)) * 8; // yr5=10d...yr9=14d
+    return (5 + (yearsOfService - 1)) * 8; // yr1=5d, 2=6d, 3=7d, 4=8d
   }
 
   function updatePtoCalc() {
@@ -512,6 +518,8 @@ async function showEditProfileDialog(employee) {
     const role = document.getElementById('edit-role').value;
     const foremanId = document.getElementById('edit-foreman').value || undefined;
     const employmentStartDate = document.getElementById('edit-start-date').value || undefined;
+    const billRateInput = document.getElementById('edit-bill-rate').value;
+    const billRate = billRateInput ? Number(billRateInput) : undefined;
     const errorEl = document.getElementById('edit-profile-error');
     errorEl.innerHTML = '';
 
@@ -541,6 +549,7 @@ async function showEditProfileDialog(employee) {
           role,
           foremanId,
           employmentStartDate,
+          billRate,
         }),
       });
 
