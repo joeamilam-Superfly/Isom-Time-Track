@@ -281,9 +281,6 @@ exports.handler = async (event) => {
       finalForemanId = foremanId || null;
     }
 
-    const rawHours = rawHoursForEntry(finalTimeIn, finalTimeOut);
-    const computedHours = finalIsHoliday ? rawHours * 2 : rawHours;
-
     // Recompute is_weekend and is_holiday if the date changed, since
     // moving a segment from a weekday to a weekend (or onto a holiday)
     // changes how the hours are classified for overtime purposes.
@@ -293,6 +290,10 @@ exports.handler = async (event) => {
       finalIsWeekend = isWeekend(finalEntryDate);
       finalIsHoliday = isHoliday(finalEntryDate);
     }
+
+    const rawHours = rawHoursForEntry(finalTimeIn, finalTimeOut);
+    // Holiday double-time: store 2x hours so payroll reads correct amount
+    const computedHours = finalIsHoliday ? rawHours * 2 : rawHours;
 
     const updateRow = {
       entry_date: finalEntryDate,
