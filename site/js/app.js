@@ -87,7 +87,7 @@ function currentDefaultForemanId() {
   return c ? (c.defaultForemanId || null) : null;
 }
 
-async function api(path, options = {}) {
+async function api(path, options = {}, _retryCount = 0) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
 
@@ -98,8 +98,19 @@ async function api(path, options = {}) {
   } catch {
     data = {};
   }
+
   if (!resp.ok) {
-    throw new Error(data.error || `Request failed (${resp.status})`);
+    // 502/503/504 are transient server errors - retry once after a short
+    // delay before surfacing the error to the user, since these are almost
+    // always momentary Netlify or Supabase hiccups that succeed on retry.
+    if ((resp.status === 502 || resp.status === 503 || resp.status === 504) && _retryCount < 1) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      return api(path, options, _retryCount + 1);
+    }
+    const friendlyMessage = resp.status === 502 || resp.status === 503 || resp.status === 504
+      ? 'The server took too long to respond. Please try again.'
+      : data.error || `Request failed (${resp.status})`;
+    throw new Error(friendlyMessage);
   }
   return data;
 }
