@@ -1,5 +1,6 @@
 const { createClient } = require('@supabase/supabase-js');
 const ws = require('ws');
+const { isHoliday, isWeekend } = require('./_hours-logic');
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, {
   realtime: { transport: ws },
@@ -110,6 +111,14 @@ exports.handler = async (event) => {
       continue; // No hours logged at all - skip
     }
 
+    // Skip holidays - employees working on recognized holidays get double
+    // time on their work segments but lunch should not be auto-added since
+    // the holiday pay rules differ and the hours threshold doesn't apply.
+    if (isHoliday(yesterday)) {
+      skipped++;
+      continue;
+    }
+
     // Check if any entry is an OFF assignment - skip the whole day
     const isOff = entries.some(e => e.job_locations?.name?.toUpperCase() === 'OFF');
     if (isOff) {
@@ -161,10 +170,8 @@ exports.handler = async (event) => {
         time_out: null,
         hours_worked: 0.5,
         hours_type: 'regular',
-        is_weekend: ['Saturday', 'Sunday'].includes(
-          new Date(yesterday + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' })
-        ),
-        is_holiday: false, // holidays are handled by the main entry logic
+        is_weekend: isWeekend(yesterday),
+        is_holiday: isHoliday(yesterday),
         status: 'draft',
       });
 
