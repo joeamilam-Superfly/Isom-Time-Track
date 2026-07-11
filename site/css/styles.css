@@ -451,12 +451,16 @@ main {
   * { transition: none !important; }
 }
 
-/* Schedule grid desktop breakout - on viewports wider than 900px, the
-   scheduling grid escapes the app's 480px max-width container and uses
-   the full browser window. The calc() technique works because #app is
-   centered with margin:0 auto, so the offset is always symmetric. */
+/* Schedule grid: mobile shows tab/swipe view, desktop shows full table.
+   Below 900px: show mobile view, hide desktop table.
+   900px+: hide mobile view, show desktop table with fullwidth breakout. */
+.schedule-mobile-view { display: block; }
+.schedule-grid-fullwidth { display: none; }
+
 @media (min-width: 900px) {
+  .schedule-mobile-view { display: none; }
   .schedule-grid-fullwidth {
+    display: block;
     width: 100vw;
     margin-left: calc(-50vw + 50%);
     margin-right: calc(-50vw + 50%);
