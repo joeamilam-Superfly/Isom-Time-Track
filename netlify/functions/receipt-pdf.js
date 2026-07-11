@@ -77,6 +77,20 @@ exports.handler = async (event) => {
     };
   }));
 
+  // Pre-fetch all images in parallel before building the PDF.
+  // Sequential fetching inside the loop risks hitting the function timeout
+  // with many receipts - parallel fetching gets all network I/O done fast.
+  const imageBuffers = {};
+  await Promise.all(withUrls.map(async (r) => {
+    if (r.signedUrl) {
+      try {
+        imageBuffers[r.id] = await fetchImageBuffer(r.signedUrl);
+      } catch {
+        imageBuffers[r.id] = null;
+      }
+    }
+  }));
+
   // Build the PDF using pdfkit
   const doc = new PDFDocument({ margin: 50, size: 'LETTER' });
   const chunks = [];
@@ -129,16 +143,10 @@ exports.handler = async (event) => {
     doc.moveDown(0.5);
 
     // Embed the receipt image if available
-    if (r.signedUrl) {
+    const imgBuffer = imageBuffers[r.id];
+    if (imgBuffer) {
       try {
-        const imgBuffer = await fetchImageBuffer(r.signedUrl);
-        // Fit image within the available page width, max height 560pt
-        const maxW = 510;
-        const maxH = 560;
-        doc.image(imgBuffer, {
-          fit: [maxW, maxH],
-          align: 'center',
-        });
+        doc.image(imgBuffer, { fit: [510, 560], align: 'center' });
       } catch (imgErr) {
         doc.fontSize(10).fillColor('#999999').text('[Image could not be loaded]');
         doc.fillColor('#000000');
