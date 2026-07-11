@@ -286,7 +286,83 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
     ${unassigned.sort((a,b) => a.lastName.localeCompare(b.lastName)).map(p => personRowHtml(p)).join('')}
   ` : '';
 
-  // Week header labels: prior=context only, current=active scheduling, next=planning
+
+  const allPeopleFlat = [...Object.values(foremanMap).flatMap(g => [g.foreman, ...g.crew]), ...unassigned];
+
+  // ---- Mobile week view (hidden on desktop via CSS) ----
+  function mobileCellHtml(personId, d, isPrior) {
+    const key = `${personId}|${d}`;
+    const dayEntries = entriesByKey[key] || [];
+    const isOff = dayEntries.some(e => e.job_locations?.name?.toUpperCase() === 'OFF');
+    const hasPendingLeave = pendingLeaveKeys.has(key);
+    const isWknd = isWeekendDate(d);
+    const cellText = dayEntries.length > 0
+      ? dayEntries.map(e => (e.job_locations ? escapeHtml(e.job_locations.name) : '(no site)') + (e.deviation_reason ? ' ⚠' : '')).join(', ')
+      : hasPendingLeave ? '⏳' : '';
+    const cellBg = isOff ? '#e53e3e'
+      : hasPendingLeave && !dayEntries.length ? '#fef3c7'
+      : dayEntries.length ? 'var(--paper-dim)'
+      : isWknd && !isPrior ? '#f5f0e8'
+      : 'transparent';
+    const cellColor = isOff ? '#fff' : hasPendingLeave && !dayEntries.length ? '#92400e' : 'inherit';
+    const dataAttr = isPrior ? '' : `data-grid-cell="${personId}|${d}"`;
+    return `<td style="padding:2px; border:1px solid var(--line); vertical-align:top; ${isPrior?'opacity:0.7;':''} cursor:${isPrior?'default':'pointer'};" ${dataAttr}>
+      <div style="min-height:44px; padding:3px 4px; border-radius:3px; background:${cellBg}; color:${cellColor}; font-size:10px; font-weight:${isOff?'600':'normal'}; line-height:1.3; word-break:break-word;">
+        ${cellText || (isPrior ? '' : '<span style="color:var(--line);font-size:16px;">+</span>')}
+      </div>
+    </td>`;
+  }
+
+  function mobileWeekTableHtml(weekDays, isPrior) {
+    const dayHeaders = weekDays.map(d => `
+      <th style="padding:4px 2px; font-size:10px; font-weight:700; text-align:center; background:${isWeekendDate(d)?'#f5f0e8':'var(--paper-dim)'}; border:1px solid var(--line); min-width:42px;">
+        ${new Date(d+'T00:00:00').toLocaleDateString('en-US',{weekday:'short'})}<br>
+        <span style="font-weight:400; color:var(--ink-soft);">${d.slice(5)}</span>
+      </th>`).join('');
+
+    const groupRows = Object.values(foremanMap)
+      .sort((a,b) => a.foreman.lastName.localeCompare(b.foreman.lastName))
+      .map(g => {
+        const people = [g.foreman, ...g.crew.sort((a,b) => a.lastName.localeCompare(b.lastName))];
+        return `
+          <tr><td colspan="${weekDays.length + 1}" style="padding:5px 6px; background:var(--ink); color:#fff; font-weight:700; font-size:11px;">
+            ${escapeHtml(g.foreman.firstName)} ${escapeHtml(g.foreman.lastName)} <span style="font-weight:400; opacity:0.7;">(${g.foreman.role==='admin'?'Admin':'Foreman'})</span>
+          </td></tr>
+          ${people.map(p => `<tr>
+            <td style="padding:4px 5px; border:1px solid var(--line); font-size:11px; font-weight:600; white-space:nowrap; position:sticky; left:0; background:var(--paper); min-width:65px; max-width:80px; overflow:hidden; text-overflow:ellipsis;">
+              ${escapeHtml(p.firstName)}<br><span style="font-weight:400; font-size:10px; color:var(--ink-soft);">${escapeHtml(p.lastName)}</span>
+            </td>
+            ${weekDays.map(d => mobileCellHtml(p.id, d, isPrior)).join('')}
+          </tr>`).join('')}`;
+      }).join('');
+
+    const unassignedRows = unassigned.length ? `
+      <tr><td colspan="${weekDays.length+1}" style="padding:5px 6px; background:var(--ink-soft); color:#fff; font-weight:700; font-size:11px;">Unassigned</td></tr>
+      ${unassigned.sort((a,b) => a.lastName.localeCompare(b.lastName)).map(p => `<tr>
+        <td style="padding:4px 5px; border:1px solid var(--line); font-size:11px; font-weight:600; white-space:nowrap; position:sticky; left:0; background:var(--paper); min-width:65px; max-width:80px; overflow:hidden; text-overflow:ellipsis;">
+          ${escapeHtml(p.firstName)}<br><span style="font-weight:400; font-size:10px; color:var(--ink-soft);">${escapeHtml(p.lastName)}</span>
+        </td>
+        ${weekDays.map(d => mobileCellHtml(p.id, d, isPrior)).join('')}
+      </tr>`).join('')}` : '';
+
+    return `<div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+      <table style="border-collapse:collapse; font-size:11px; width:100%;">
+        <thead><tr>
+          <th style="padding:4px 5px; font-size:10px; border:1px solid var(--line); position:sticky; left:0; background:var(--paper); min-width:65px;">Name</th>
+          ${dayHeaders}
+        </tr></thead>
+        <tbody>${groupRows}${unassignedRows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  const mobileWeeks = [
+    { days: week0Days, label: 'Prior', sublabel: weekLabel(week0Days), isPrior: true },
+    { days: week1Days, label: 'This week', sublabel: weekLabel(week1Days), isPrior: false },
+    { days: week2Days, label: 'Next week', sublabel: weekLabel(week2Days), isPrior: false },
+  ];
+
+  // Week header labels for desktop
   const weekMeta = [
     { days: week0Days, label: 'Prior week', note: 'read only' },
     { days: week1Days, label: 'This week', note: 'scheduling' },
@@ -294,13 +370,29 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
   ];
 
   listEl.innerHTML = `
+    <!-- MOBILE VIEW -->
+    <div class="schedule-mobile-view">
+      <div style="display:flex; border-bottom:2px solid var(--line); margin-bottom:12px;" id="mobile-week-tabs">
+        ${mobileWeeks.map((wk, i) => `
+          <button data-week-idx="${i}" style="flex:1; padding:8px 2px; border:none; background:${i===1?'var(--amber)':'transparent'}; color:${i===1?'#fff':'var(--ink)'}; font-size:11px; font-weight:${i===1?'700':'400'}; cursor:pointer; line-height:1.3;">
+            ${wk.label}<br><span style="font-size:9px; opacity:0.85;">${wk.sublabel}</span>
+          </button>`).join('')}
+      </div>
+      <div id="mobile-week-content"></div>
+      <div style="display:flex; gap:10px; margin-top:14px;">
+        <button class="btn btn-ghost" id="mobile-prev-week" style="flex:1;">&#8592; Prior</button>
+        <button class="btn btn-ghost" id="mobile-next-week" style="flex:1;">Next &#8594;</button>
+      </div>
+    </div>
+
+    <!-- DESKTOP VIEW -->
     <div class="schedule-grid-fullwidth">
       <table style="width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed;">
         <thead>
           <tr>
             <th style="text-align:left; padding:6px 8px; border-bottom:2px solid var(--line); position:sticky; left:0; background:var(--paper); width:130px;"></th>
             ${weekMeta.map((wk, wi) => `
-              <th colspan="7" style="text-align:center; padding:4px 6px; border-bottom:2px solid var(--line); ${wi > 0 ? 'border-left:2px solid var(--amber);' : ''} background:${wi === 0 ? 'var(--line)' : wi === 1 ? 'var(--paper-dim)' : 'var(--paper-dim)'}; font-size:11px; font-weight:700; opacity:${wi === 0 ? '0.7' : '1'};">
+              <th colspan="7" style="text-align:center; padding:4px 6px; border-bottom:2px solid var(--line); ${wi>0?'border-left:2px solid var(--amber);':''} background:${wi===0?'var(--line)':'var(--paper-dim)'}; font-size:11px; font-weight:700; opacity:${wi===0?'0.7':'1'};">
                 ${wk.label} &nbsp;<span style="font-weight:400;">${weekLabel(wk.days)}</span>
               </th>`).join('')}
           </tr>
@@ -321,12 +413,52 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
     </div>
   `;
 
-  // Only attach click handlers to current and next week cells (not prior week)
-  listEl.querySelectorAll('[data-grid-cell]').forEach(cell => {
+  // Mobile tab/swipe logic
+  let mobileWeekIdx = 1;
+  function renderMobileWeek(idx) {
+    mobileWeekIdx = idx;
+    const wk = mobileWeeks[idx];
+    document.getElementById('mobile-week-content').innerHTML = mobileWeekTableHtml(wk.days, wk.isPrior);
+    document.querySelectorAll('#mobile-week-tabs button').forEach((btn, i) => {
+      const active = i === idx;
+      btn.style.background = active ? 'var(--amber)' : 'transparent';
+      btn.style.color = active ? '#fff' : 'var(--ink)';
+      btn.style.fontWeight = active ? '700' : '400';
+    });
+    document.querySelectorAll('#mobile-week-content [data-grid-cell]').forEach(cell => {
+      cell.addEventListener('click', () => {
+        const [personId, date] = cell.getAttribute('data-grid-cell').split('|');
+        const person = allPeopleFlat.find(p => p.id === personId);
+        state.scheduleWeekDays = wk.days;
+        showScheduleCellDialog(personId, person, date, entriesByKey[`${personId}|${date}`] || []);
+      });
+    });
+  }
+  renderMobileWeek(1);
+
+  document.querySelectorAll('#mobile-week-tabs button').forEach(btn => {
+    btn.addEventListener('click', () => renderMobileWeek(parseInt(btn.getAttribute('data-week-idx'))));
+  });
+  document.getElementById('mobile-prev-week').addEventListener('click', () => { if (mobileWeekIdx > 0) renderMobileWeek(mobileWeekIdx - 1); });
+  document.getElementById('mobile-next-week').addEventListener('click', () => { if (mobileWeekIdx < 2) renderMobileWeek(mobileWeekIdx + 1); });
+
+  // Swipe detection
+  let touchStartX = 0;
+  const mobileContent = document.getElementById('mobile-week-content');
+  mobileContent.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, { passive: true });
+  mobileContent.addEventListener('touchend', e => {
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 50) {
+      if (diff > 0 && mobileWeekIdx < 2) renderMobileWeek(mobileWeekIdx + 1);
+      if (diff < 0 && mobileWeekIdx > 0) renderMobileWeek(mobileWeekIdx - 1);
+    }
+  }, { passive: true });
+
+  // Desktop cell click handlers
+  listEl.querySelectorAll('.schedule-grid-fullwidth [data-grid-cell]').forEach(cell => {
     cell.addEventListener('click', () => {
       const [personId, date] = cell.getAttribute('data-grid-cell').split('|');
-      const allPeople = [...Object.values(foremanMap).flatMap(g => [g.foreman, ...g.crew]), ...unassigned];
-      const person = allPeople.find(p => p.id === personId);
+      const person = allPeopleFlat.find(p => p.id === personId);
       state.scheduleWeekDays = [week1Days, week2Days].find(wk => wk.includes(date)) || week1Days;
       showScheduleCellDialog(personId, person, date, entriesByKey[`${personId}|${date}`] || []);
     });
