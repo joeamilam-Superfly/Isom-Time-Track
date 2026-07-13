@@ -96,10 +96,29 @@ function showWorkOrderDetail(workOrderId, wos) {
         <div style="font-weight:600;font-size:13px;margin-bottom:6px;">Work order details</div>
         <div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:12px;font-size:13px;white-space:pre-line;margin-bottom:16px;color:#fff;">${escapeHtml(wo.details)}</div>
       ` : ''}
+
+      <!-- Time entries logged against this WO -->
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px;">Time logged${wo.totalHours ? ` — ${wo.totalHours.toFixed(2)}h total` : ''}</div>
+      ${wo.timeEntries && wo.timeEntries.length > 0 ? `
+        <div style="background:rgba(255,255,255,0.08);border-radius:8px;overflow:hidden;margin-bottom:12px;">
+          ${wo.timeEntries.map(e => `
+            <div style="padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.1);font-size:12px;">
+              <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+                <span style="font-weight:600;">${escapeHtml(e.employeeName)}</span>
+                <span style="color:rgba(255,255,255,0.7);">${e.hoursWorked.toFixed(2)}h</span>
+              </div>
+              <div style="color:rgba(255,255,255,0.6);">${e.date} &middot; ${e.timeIn ? e.timeIn.slice(0,5) : ''} – ${e.timeOut ? e.timeOut.slice(0,5) : ''}</div>
+              ${e.activityDescription ? `<div style="color:rgba(255,255,255,0.8);margin-top:3px;font-style:italic;">${escapeHtml(e.activityDescription)}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      ` : `<div style="color:rgba(255,255,255,0.4);font-size:13px;margin-bottom:12px;">No time logged yet.</div>`}
+
       <div id="wo-detail-error"></div>
       <div style="display:flex;flex-direction:column;gap:10px;">
         ${canComplete ? `<button class="btn btn-primary" id="wo-detail-complete" style="background:#16a34a;color:#fff;border:none;">Mark complete &amp; ready to bill</button>` : ''}
         ${canBill ? `<button class="btn btn-primary" id="wo-detail-bill" style="background:#16a34a;color:#fff;border:none;">Mark as billed</button>` : ''}
+        <button id="wo-add-time-btn" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">+ Log time toward this WO</button>
         ${canUpdatePhoto ? `<button class="btn btn-ghost" id="wo-detail-photo" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4);">Update work order photo</button>` : ''}
         ${canReassign ? `<button class="btn btn-ghost" id="wo-detail-reassign" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4);">Reassign</button>` : ''}
       </div>
@@ -140,6 +159,11 @@ function showWorkOrderDetail(workOrderId, wos) {
       showUpdateWorkOrderPhotoDialog(wo.id);
     });
   }
+
+  document.getElementById('wo-add-time-btn').addEventListener('click', () => {
+    document.body.removeChild(overlay);
+    showLogWoTimeDialog(wo);
+  });
 
   if (canReassign) {
     document.getElementById('wo-detail-reassign').addEventListener('click', () => {
@@ -573,6 +597,127 @@ function showEditWorkOrderDialog(wo) {
       errorEl.innerHTML = errorHtml(err.message);
       btn.disabled = false;
       btn.textContent = 'Save changes';
+    }
+  });
+}
+
+// Log time toward a specific work order. Creates a time_entries row
+// with work_order_id set so all hours are tied to the WO.
+function showLogWoTimeDialog(wo) {
+  // Build time options (same as the main segment form)
+  const times = [];
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 30) {
+      const hh = String(h).padStart(2, '0');
+      const mm = String(m).padStart(2, '0');
+      const label = `${h === 0 ? 12 : h > 12 ? h - 12 : h}:${mm} ${h < 12 ? 'AM' : 'PM'}`;
+      times.push({ value: `${hh}:${mm}`, label });
+    }
+  }
+  const timeOptions = times.map(t => `<option value="${t.value}">${t.label}</option>`).join('');
+
+  const today = todayStr();
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;overflow-y:auto;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;max-height:85vh;overflow-y:auto;">
+      <div style="font-weight:700;font-size:17px;margin-bottom:4px;">Log time</div>
+      <div class="screen-sub" style="margin-bottom:14px;">WO# ${escapeHtml(wo.woNumber)}${wo.jobLocation ? ' &middot; ' + escapeHtml(wo.jobLocation.name) : ''}</div>
+
+      <div class="field">
+        <label for="wo-time-date">Date</label>
+        <input id="wo-time-date" type="date" value="${today}" />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="field">
+          <label for="wo-time-in">Time in</label>
+          <select id="wo-time-in">${timeOptions}</select>
+        </div>
+        <div class="field">
+          <label for="wo-time-out">Time out</label>
+          <select id="wo-time-out">${timeOptions}</select>
+        </div>
+      </div>
+      <div id="wo-time-hours" style="text-align:center;padding:10px;background:var(--paper-dim);border-radius:8px;font-weight:600;margin-bottom:12px;"></div>
+      <div class="field">
+        <label for="wo-time-desc">Work performed (optional)</label>
+        <textarea id="wo-time-desc" rows="3" placeholder="Describe what was done..."></textarea>
+      </div>
+      <div id="wo-log-error"></div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-ghost" id="wo-log-cancel">Cancel</button>
+        <button class="btn btn-primary" id="wo-log-save">Log time</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Default times: 7:00 AM in, 3:30 PM out
+  const inSel = document.getElementById('wo-time-in');
+  const outSel = document.getElementById('wo-time-out');
+  inSel.value = '07:00';
+  outSel.value = '15:30';
+
+  function updateHours() {
+    const [ih, im] = inSel.value.split(':').map(Number);
+    const [oh, om] = outSel.value.split(':').map(Number);
+    const totalMins = (oh * 60 + om) - (ih * 60 + im);
+    const hoursEl = document.getElementById('wo-time-hours');
+    if (totalMins <= 0) {
+      hoursEl.textContent = 'Invalid time range';
+      hoursEl.style.color = '#e53e3e';
+    } else {
+      hoursEl.textContent = (totalMins / 60).toFixed(2) + ' hours';
+      hoursEl.style.color = 'inherit';
+    }
+  }
+  updateHours();
+  inSel.addEventListener('change', updateHours);
+  outSel.addEventListener('change', updateHours);
+
+  document.getElementById('wo-log-cancel').addEventListener('click', () => document.body.removeChild(overlay));
+
+  document.getElementById('wo-log-save').addEventListener('click', async () => {
+    const date = document.getElementById('wo-time-date').value;
+    const timeIn = inSel.value;
+    const timeOut = outSel.value;
+    const activityDescription = document.getElementById('wo-time-desc').value.trim() || null;
+    const errorEl = document.getElementById('wo-log-error');
+    const btn = document.getElementById('wo-log-save');
+
+    if (!date) { errorEl.innerHTML = errorHtml('Date is required.'); return; }
+    const [ih, im] = timeIn.split(':').map(Number);
+    const [oh, om] = timeOut.split(':').map(Number);
+    if ((oh * 60 + om) <= (ih * 60 + im)) { errorEl.innerHTML = errorHtml('Time out must be after time in.'); return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Logging...';
+    try {
+      await api('/time-entries', {
+        method: 'POST',
+        body: JSON.stringify({
+          companyId: state.activeCompanyId,
+          entryDate: date,
+          timeIn,
+          timeOut,
+          activityDescription,
+          jobLocationId: wo.jobLocation?.id || null,
+          workOrderId: wo.id,
+        }),
+      });
+      document.body.removeChild(overlay);
+      // Refresh the WO detail by re-fetching and reopening
+      const data = await api(withCompany('/work-orders?status=open'));
+      const allWos = [...(data.workOrders || [])];
+      // Also check ready_to_bill
+      const data2 = await api(withCompany('/work-orders?status=ready_to_bill')).catch(() => ({ workOrders: [] }));
+      const updatedWo = [...allWos, ...(data2.workOrders || [])].find(w => w.id === wo.id);
+      if (updatedWo) showWorkOrderDetail(updatedWo.id, [updatedWo]);
+      else render('approvals', { subView: 'schedule' });
+    } catch (err) {
+      errorEl.innerHTML = errorHtml(err.message);
+      btn.disabled = false;
+      btn.textContent = 'Log time';
     }
   });
 }
