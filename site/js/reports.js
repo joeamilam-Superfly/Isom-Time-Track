@@ -13,7 +13,15 @@ async function renderReports() {
   const myRole = currentCompanyRole();
   if (myRole !== 'admin') return;
 
-  const locations = state.jobLocations || [];
+  // Fetch job locations directly - can't rely on state.jobLocations
+  // since it's only populated when the Schedule tab has been visited
+  let locations = [];
+  try {
+    const locData = await api(withCompany('/job-locations'));
+    locations = locData.locations || [];
+  } catch (err) {
+    console.error('Could not load job locations for reports:', err);
+  }
 
   // Build period value selectors
   const today = new Date();
