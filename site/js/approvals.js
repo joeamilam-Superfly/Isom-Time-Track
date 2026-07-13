@@ -159,21 +159,22 @@ async function loadScheduleGrid(weekOf) {
     const startDate = allDays[0];
     const endDate = allDays[allDays.length - 1];
 
-    const [peopleData, scheduleData, locationsData] = await Promise.all([
+    const [peopleData, scheduleData, locationsData, woData] = await Promise.all([
       api(withCompany('/dashboard')),
       api(withCompany(`/schedule?startDate=${startDate}&endDate=${endDate}`)),
       api(withCompany('/job-locations')),
+      api(withCompany('/work-orders?status=open')).catch(() => ({ workOrders: [] })),
     ]);
 
     state.jobLocations = locationsData.locations || [];
     state.scheduleWeekDays = week1Days; // dialog advances through current week
-    renderScheduleGrid(peopleData.people || [], scheduleData.entries || [], week0Days, week1Days, week2Days, scheduleData.pendingLeave || []);
+    renderScheduleGrid(peopleData.people || [], scheduleData.entries || [], week0Days, week1Days, week2Days, scheduleData.pendingLeave || [], woData.workOrders || []);
   } catch (err) {
     listEl.innerHTML = errorHtml(err.message);
   }
 }
 
-function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pendingLeave) {
+function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pendingLeave, workOrders) {
   const listEl = document.getElementById('approvals-list');
   const allDays = [...week0Days, ...week1Days, ...week2Days];
   const priorDaySet = new Set(week0Days); // prior week cells are read-only
@@ -189,6 +190,17 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
     if (!entriesByKey[key]) entriesByKey[key] = [];
     entriesByKey[key].push(e);
   }
+
+  // Build work order lookup: assignedTo.id|scheduledDate -> [workOrders]
+  const woByKey = {};
+  for (const wo of (workOrders || [])) {
+    if (wo.assignedTo?.id && wo.scheduledDate) {
+      const key = `${wo.assignedTo.id}|${wo.scheduledDate}`;
+      if (!woByKey[key]) woByKey[key] = [];
+      woByKey[key].push(wo);
+    }
+  }
+
 
   const pendingLeaveKeys = new Set();
   for (const req of (pendingLeave || [])) {
@@ -213,17 +225,25 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
   function cellHtml(personId, d, idx) {
     const key = `${personId}|${d}`;
     const dayEntries = entriesByKey[key] || [];
+    const dayWos = woByKey[key] || [];
     const isOff = dayEntries.some(e => e.job_locations?.name?.toUpperCase() === 'OFF');
     const hasPendingLeave = pendingLeaveKeys.has(key);
     const isPrior = priorDaySet.has(d);
     const isWknd = isWeekendDate(d);
-    const cellText = dayEntries.length > 0
-      ? dayEntries.map(e => (e.job_locations ? escapeHtml(e.job_locations.name) : '(no site)') + (e.deviation_reason ? ' \u26a0' : '')).join(', ')
-      : hasPendingLeave ? '\u23f3 Leave pending' : '';
+
+    const entryText = dayEntries.length > 0
+      ? dayEntries.map(e => (e.job_locations ? escapeHtml(e.job_locations.name) : '(no site)') + (e.deviation_reason ? ' ⚠' : '')).join(', ')
+      : hasPendingLeave ? '⏳ Leave pending' : '';
+
+    // Work order badges shown in green below any schedule entries
+    const woText = dayWos.map(wo =>
+      `<div style="background:#16a34a; color:#fff; border-radius:3px; padding:1px 4px; margin-top:2px; font-size:10px; font-weight:600;" data-wo-cell="${wo.id}">WO# ${escapeHtml(wo.woNumber)}</div>`
+    ).join('');
+
     const cellBg = isOff ? '#e53e3e'
-      : hasPendingLeave && !dayEntries.length ? '#fef3c7'
+      : hasPendingLeave && !dayEntries.length && !dayWos.length ? '#fef3c7'
       : dayEntries.length ? 'var(--paper-dim)'
-      : isWknd && !isPrior ? '#f5f0e8'  // subtle weekend tint on current/next week
+      : isWknd && !isPrior ? '#f5f0e8'
       : 'transparent';
     const cellColor = isOff ? '#fff' : hasPendingLeave && !dayEntries.length ? '#92400e' : 'inherit';
     const cellBorder = isOff || dayEntries.length ? 'transparent' : hasPendingLeave ? '#fbbf24' : 'var(--line)';
@@ -233,7 +253,8 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
     const cursor = isPrior ? 'default' : 'pointer';
     return `<td style="padding:3px; border-bottom:1px solid var(--line); cursor:${cursor}; vertical-align:top; ${weekBorder}${priorStyle}" ${dataAttr}>
       <div style="min-height:28px; padding:3px 4px; border-radius:4px; background:${cellBg}; border:1px dashed ${cellBorder}; color:${cellColor}; font-weight:${isOff?'600':'normal'}; font-size:11px;">
-        ${cellText || (isPrior ? '' : '<span style="color:var(--line);">+</span>')}
+        ${entryText || (isPrior ? '' : (!woText ? '<span style="color:var(--line);">+</span>' : ''))}
+        ${woText}
       </div>
     </td>`;
   }
@@ -294,12 +315,16 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
   function mobileCellHtml(personId, d, isPrior) {
     const key = `${personId}|${d}`;
     const dayEntries = entriesByKey[key] || [];
+    const dayWos = woByKey[key] || [];
     const isOff = dayEntries.some(e => e.job_locations?.name?.toUpperCase() === 'OFF');
     const hasPendingLeave = pendingLeaveKeys.has(key);
     const isWknd = isWeekendDate(d);
     const cellText = dayEntries.length > 0
       ? dayEntries.map(e => (e.job_locations ? escapeHtml(e.job_locations.name) : '(no site)') + (e.deviation_reason ? ' ⚠' : '')).join(', ')
       : hasPendingLeave ? '⏳' : '';
+    const woText = dayWos.map(wo =>
+      `<div style="background:#16a34a;color:#fff;border-radius:3px;padding:1px 3px;margin-top:2px;font-size:9px;font-weight:600;" data-wo-cell="${wo.id}">WO#${escapeHtml(wo.woNumber)}</div>`
+    ).join('');
     const cellBg = isOff ? '#e53e3e'
       : hasPendingLeave && !dayEntries.length ? '#fef3c7'
       : dayEntries.length ? 'var(--paper-dim)'
@@ -310,6 +335,7 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
     return `<td style="padding:2px; border:1px solid var(--line); vertical-align:top; ${isPrior?'opacity:0.7;':''} cursor:${isPrior?'default':'pointer'};" ${dataAttr}>
       <div style="min-height:44px; padding:3px 4px; border-radius:3px; background:${cellBg}; color:${cellColor}; font-size:10px; font-weight:${isOff?'600':'normal'}; line-height:1.3; word-break:break-word;">
         ${cellText || (isPrior ? '' : '<span style="color:var(--line);font-size:16px;">+</span>')}
+        ${woText}
       </div>
     </td>`;
   }
@@ -434,6 +460,14 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
         showScheduleCellDialog(personId, person, date, entriesByKey[`${personId}|${date}`] || []);
       });
     });
+    document.querySelectorAll('#mobile-week-content [data-wo-cell]').forEach(badge => {
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const woId = badge.getAttribute('data-wo-cell');
+        const allWos = Object.values(woByKey).flat();
+        showWorkOrderDetail(woId, allWos);
+      });
+    });
   }
   renderMobileWeek(1);
 
@@ -462,6 +496,16 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
       const person = allPeopleFlat.find(p => p.id === personId);
       state.scheduleWeekDays = [week1Days, week2Days].find(wk => wk.includes(date)) || week1Days;
       showScheduleCellDialog(personId, person, date, entriesByKey[`${personId}|${date}`] || []);
+    });
+  });
+
+  // Work order badge click handlers - open WO detail without triggering cell dialog
+  listEl.querySelectorAll('[data-wo-cell]').forEach(badge => {
+    badge.addEventListener('click', (e) => {
+      e.stopPropagation(); // prevent cell dialog from opening
+      const woId = badge.getAttribute('data-wo-cell');
+      const allWos = Object.values(woByKey).flat();
+      showWorkOrderDetail(woId, allWos);
     });
   });
 }
@@ -522,6 +566,10 @@ async function loadWorkOrdersSection() {
     woContent.querySelectorAll('[data-wo-complete]').forEach(btn => {
       btn.addEventListener('click', () => completeWorkOrder(btn.getAttribute('data-wo-complete'), woContent));
     });
+    woContent.querySelectorAll('[data-wo-edit]').forEach(btn => {
+      const wo = allWos.find(w => w.id === btn.getAttribute('data-wo-edit'));
+      if (wo) btn.addEventListener('click', () => showEditWorkOrderDialog(wo));
+    });
   } catch (err) {
     const woContent = document.getElementById('wo-list-content');
     if (woContent) woContent.innerHTML = errorHtml(err.message);
@@ -545,13 +593,14 @@ async function refreshScheduleGridInPlace() {
   const endDate = week2Days[6];
   try {
     const scrollY = window.scrollY;
-    const [peopleData, scheduleData, locationsData] = await Promise.all([
+    const [peopleData, scheduleData, locationsData, woData] = await Promise.all([
       api(withCompany('/dashboard')),
       api(withCompany(`/schedule?startDate=${startDate}&endDate=${endDate}`)),
       api(withCompany('/job-locations')),
+      api(withCompany('/work-orders?status=open')).catch(() => ({ workOrders: [] })),
     ]);
     state.jobLocations = locationsData.locations || [];
-    renderScheduleGrid(peopleData.people || [], scheduleData.entries || [], week0Days, week1Days, week2Days, scheduleData.pendingLeave || []);
+    renderScheduleGrid(peopleData.people || [], scheduleData.entries || [], week0Days, week1Days, week2Days, scheduleData.pendingLeave || [], woData.workOrders || []);
     window.scrollTo(0, scrollY);
   } catch (err) {
     console.error('Grid refresh failed:', err);
