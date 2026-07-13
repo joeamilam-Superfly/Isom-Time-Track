@@ -37,10 +37,17 @@ async function renderWeek(opts) {
   document.getElementById('view-schedule-btn').addEventListener('click', showUpcomingScheduleDialog);
 
   try {
-    const data = await api(withCompany(`/weekly-summary?employeeId=${state.employee.id}&weekOf=${weekOf}`));
+    const [data, woData] = await Promise.all([
+      api(withCompany(`/weekly-summary?employeeId=${state.employee.id}&weekOf=${weekOf}`)),
+      api(withCompany('/work-orders?status=open')).catch(() => ({ workOrders: [] })),
+    ]);
     const mySummary = (data.summaries || [])[0];
+    // Filter WOs assigned to this specific employee only
+    const myWos = (woData.workOrders || []).filter(wo =>
+      wo.assignedTo?.id === state.employee.id && wo.scheduledDate
+    );
     renderWeekSummary(mySummary);
-    renderWeekDays(weekOf, mySummary);
+    renderWeekDays(weekOf, mySummary, myWos);
   } catch (err) {
     document.getElementById('week-days').innerHTML = errorHtml(err.message);
   }
@@ -63,17 +70,24 @@ function renderWeekSummary(summary) {
   `;
 }
 
-function renderWeekDays(weekOf, summary) {
+function renderWeekDays(weekOf, summary, workOrders) {
   const dayMap = {};
   if (summary) {
     for (const d of summary.days) dayMap[d.date] = d;
+  }
+
+  // Build WO lookup by date so dayStubHtml can show badges
+  const woByDate = {};
+  for (const wo of (workOrders || [])) {
+    if (!woByDate[wo.scheduledDate]) woByDate[wo.scheduledDate] = [];
+    woByDate[wo.scheduledDate].push(wo);
   }
 
   const rows = [];
   for (let i = 0; i < 7; i++) {
     const date = addDaysStr(weekOf, i);
     const entry = dayMap[date];
-    rows.push(dayStubHtml(date, entry));
+    rows.push(dayStubHtml(date, entry, woByDate[date] || []));
   }
 
   document.getElementById('week-days').innerHTML = rows.join('');
@@ -85,21 +99,25 @@ function renderWeekDays(weekOf, summary) {
   });
 }
 
-function dayStubHtml(date, day) {
+function dayStubHtml(date, day, dayWos) {
   const label = formatDateLabel(date);
   const isToday = date === todayStr();
   const isFuture = date > todayStr();
+  const woBadges = (dayWos || []).map(wo =>
+    `<div style="display:inline-flex;align-items:center;gap:4px;background:#16a34a;color:#fff;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;margin-top:4px;">WO# ${escapeHtml(wo.woNumber)}</div>`
+  ).join('');
 
   if (!day || !day.segments || day.segments.length === 0) {
     return `
       <div class="day-stub" data-day-edit="${date}">
-        <div class="day-stub-perf"></div>
+        <div class="day-stub-perf" style="${woBadges ? 'background:#16a34a;' : ''}"></div>
         <div class="day-stub-body">
           <div class="day-stub-top">
             <div class="day-stub-date">${label}${isToday ? ' &middot; Today' : ''}</div>
             <div class="day-stub-hours" style="color:var(--ink-soft);">&mdash;</div>
           </div>
           <div class="day-stub-meta">${isFuture ? 'Not yet worked' : 'No hours logged yet'}</div>
+          ${woBadges ? `<div style="margin-top:6px;">${woBadges}</div>` : ''}
         </div>
       </div>
     `;
@@ -136,6 +154,7 @@ function dayStubHtml(date, day) {
           ${siteNames.length > 0 ? `<span>${siteNames.map(escapeHtml).join(', ')}</span>` : ''}
         </div>
         ${overallStatusPill}
+        ${woBadges ? `<div style="margin-top:6px;">${woBadges}</div>` : ''}
       </div>
     </div>
   `;
