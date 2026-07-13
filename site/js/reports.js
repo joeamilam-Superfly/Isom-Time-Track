@@ -32,23 +32,24 @@ async function renderReports() {
     <main>
       <div class="screen-title">Reports</div>
 
-      <div class="summary-card" style="margin-bottom:16px;">
+      <div style="background:#1a1a1a; border-radius:12px; padding:20px; margin-bottom:16px; color:#fff;">
         <div style="font-weight:700; font-size:15px; margin-bottom:12px;">Billing Report</div>
 
         <div class="field">
-          <label>Time period</label>
+          <label style="color:#fff;">Time period</label>
           <div style="display:flex; gap:8px; margin-bottom:8px;">
-            ${['week','month','year'].map(p => `
-              <button class="btn btn-sm ${reportState.period === p ? 'btn-primary' : 'btn-ghost'}" 
-                style="flex:1;" data-period-type="${p}">
+            ${['week','month','year'].map(p => {
+              const active = reportState.period === p;
+              return `<button data-period-type="${p}" style="flex:1; padding:12px; border-radius:8px; border:1.5px solid ${active ? '#c47c1e' : 'rgba(255,255,255,0.3)'}; background:${active ? '#c47c1e' : 'transparent'}; color:#fff; font-size:14px; font-weight:${active ? '700' : '400'}; cursor:pointer;">
                 ${p.charAt(0).toUpperCase() + p.slice(1)}
-              </button>`).join('')}
+              </button>`;
+            }).join('')}
           </div>
           <div id="period-value-container"></div>
         </div>
 
         <div class="field">
-          <label for="report-location">Job location</label>
+          <label for="report-location" style="color:#fff;">Job location</label>
           <select id="report-location">
             <option value="all">All locations</option>
             ${locations.map(l => `<option value="${l.id}" ${reportState.locationId === l.id ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
@@ -56,12 +57,13 @@ async function renderReports() {
         </div>
 
         <div class="field">
-          <label>Group by</label>
+          <label style="color:#fff;">Group by</label>
           <div style="display:flex; gap:8px;">
-            <button class="btn btn-sm ${reportState.groupBy === 'location' ? 'btn-primary' : 'btn-ghost'}"
-              style="flex:1;" data-groupby="location">Job Location</button>
-            <button class="btn btn-sm ${reportState.groupBy === 'employee' ? 'btn-primary' : 'btn-ghost'}"
-              style="flex:1;" data-groupby="employee">Employee</button>
+            ${['location','employee'].map(g => {
+              const active = reportState.groupBy === g;
+              const label = g === 'location' ? 'Job Location' : 'Employee';
+              return `<button data-groupby="${g}" style="flex:1; padding:12px; border-radius:8px; border:1.5px solid ${active ? '#c47c1e' : 'rgba(255,255,255,0.3)'}; background:${active ? '#c47c1e' : 'transparent'}; color:#fff; font-size:14px; font-weight:${active ? '700' : '400'}; cursor:pointer;">${label}</button>`;
+            }).join('')}
           </div>
         </div>
 
