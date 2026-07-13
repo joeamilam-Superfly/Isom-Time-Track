@@ -139,7 +139,7 @@ function showAddPhotoDialog() {
 
       <div class="field">
         <label for="photo-file-input">Photo</label>
-        <input id="photo-file-input" type="file" accept="image/*" capture="environment" />
+        <input id="photo-file-input" type="file" accept="image/*" />
       </div>
       <div id="photo-preview" style="display:none; margin-bottom:14px;">
         <img id="photo-preview-img" style="width:100%; border-radius:8px; max-height:240px; object-fit:cover;" />
