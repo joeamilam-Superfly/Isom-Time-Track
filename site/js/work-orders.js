@@ -40,6 +40,7 @@ function workOrderCardHtml(wo, myRole) {
   const statusLabel = { open: 'Open', ready_to_bill: 'Ready to bill', billed: 'Billed' }[wo.status] || wo.status;
   const statusColor = { open: 'var(--amber-dark)', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)' }[wo.status];
   const canComplete = wo.status === 'open' && (myRole === 'admin' || myRole === 'foreman' || wo.assignedTo?.id === state.employee.id);
+  const canCreate = myRole === 'admin' || myRole === 'foreman';
 
   return `
     <div class="day-stub" style="margin-bottom:10px;">
@@ -67,7 +68,7 @@ function workOrderCardHtml(wo, myRole) {
 
 function showWorkOrderDetail(workOrderId, wos) {
   const wo = wos.find(w => w.id === workOrderId);
-  if (!wo || !wo.currentPhoto?.url) return;
+  if (!wo) return;
 
   const myRole = currentCompanyRole();
   const canComplete = wo.status === 'open' && (myRole === 'admin' || myRole === 'foreman' || wo.assignedTo?.id === state.employee.id);
@@ -83,7 +84,7 @@ function showWorkOrderDetail(workOrderId, wos) {
       <button id="wo-close" style="background:none;border:none;color:#fff;font-size:28px;cursor:pointer;line-height:1;">&times;</button>
     </div>
     <div style="flex:1;overflow-y:auto;padding:16px;background:#1a1a1a;color:#fff;">
-      <img src="${wo.currentPhoto.url}" style="width:100%;border-radius:8px;display:block;margin-bottom:16px;" />
+      ${wo.currentPhoto?.url ? `<img src="${wo.currentPhoto.url}" style="width:100%;border-radius:8px;display:block;margin-bottom:16px;" />` : `<div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:20px;text-align:center;color:rgba(255,255,255,0.5);margin-bottom:16px;font-size:13px;">No photo attached yet</div>`}
       <div style="background:rgba(255,255,255,0.1);border-radius:10px;padding:12px;margin-bottom:16px;">
         ${wo.jobLocation ? `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);"><span style="color:rgba(255,255,255,0.6);">Location</span><span style="font-weight:700;">${escapeHtml(wo.jobLocation.name)}</span></div>` : ''}
         <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);"><span style="color:rgba(255,255,255,0.6);">Received</span><span style="font-weight:700;">${wo.dateReceived}</span></div>
