@@ -174,7 +174,7 @@ function showCreateWorkOrderDialog() {
 
       <div class="field">
         <label>Work order photo</label>
-        <input id="wo-photo-input" type="file" accept="image/*" capture="environment" />
+        <input id="wo-photo-input" type="file" accept="image/*" />
       </div>
       <div id="wo-photo-preview" style="display:none;margin-bottom:12px;">
         <img id="wo-photo-img" style="width:100%;border-radius:8px;max-height:200px;object-fit:cover;" />
@@ -336,7 +336,7 @@ function showUpdateWorkOrderPhotoDialog(workOrderId) {
       <div class="screen-sub" style="margin-bottom:14px;">The previous photo will be kept in history. The new photo becomes the current version.</div>
       <div class="field">
         <label>New photo</label>
-        <input id="wo-update-photo-input" type="file" accept="image/*" capture="environment" />
+        <input id="wo-update-photo-input" type="file" accept="image/*" />
       </div>
       <div id="wo-update-preview" style="display:none;margin-bottom:12px;">
         <img id="wo-update-img" style="width:100%;border-radius:8px;max-height:200px;object-fit:cover;" />
@@ -491,7 +491,7 @@ function showEditWorkOrderDialog(wo) {
       </div>
       <div class="field">
         <label>Update photo (optional)</label>
-        <input id="edit-wo-photo" type="file" accept="image/*" capture="environment" />
+        <input id="edit-wo-photo" type="file" accept="image/*" />
         <div class="screen-sub">Previous photo will be kept in history.</div>
       </div>
       <div id="edit-wo-error"></div>
