@@ -27,6 +27,10 @@ async function renderMyWorkOrders(container) {
     container.querySelectorAll('[data-wo-complete]').forEach(btn => {
       btn.addEventListener('click', () => completeWorkOrder(btn.getAttribute('data-wo-complete'), container));
     });
+    container.querySelectorAll('[data-wo-edit]').forEach(btn => {
+      const wo = wos.find(w => w.id === btn.getAttribute('data-wo-edit'));
+      if (wo) btn.addEventListener('click', () => showEditWorkOrderDialog(wo));
+    });
   } catch (err) {
     console.error('Could not load work orders:', err);
   }
@@ -54,6 +58,7 @@ function workOrderCardHtml(wo, myRole) {
         <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
           ${wo.currentPhoto ? `<button class="btn btn-sm btn-ghost" data-wo-view="${wo.id}">View WO</button>` : ''}
           ${canComplete ? `<button class="btn btn-sm btn-primary" data-wo-complete="${wo.id}">Mark complete</button>` : ''}
+          ${canCreate ? `<button class="btn btn-sm btn-ghost" data-wo-edit="${wo.id}">Edit</button>` : ''}
         </div>
       </div>
     </div>
@@ -71,31 +76,31 @@ function showWorkOrderDetail(workOrderId, wos) {
   const canBill = myRole === 'admin' && wo.status === 'ready_to_bill';
 
   const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.95);display:flex;flex-direction:column;z-index:200;';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.98);display:flex;flex-direction:column;z-index:200;';
   overlay.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--ink);">
-      <div style="color:#fff;font-weight:700;">WO# ${escapeHtml(wo.woNumber)}</div>
-      <button id="wo-close" style="background:none;border:none;color:#fff;font-size:24px;cursor:pointer;">&times;</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#1a1a1a;">
+      <div style="color:#fff;font-weight:700;font-size:16px;">WO# ${escapeHtml(wo.woNumber)}</div>
+      <button id="wo-close" style="background:none;border:none;color:#fff;font-size:28px;cursor:pointer;line-height:1;">&times;</button>
     </div>
-    <div style="flex:1;overflow-y:auto;padding:16px;">
+    <div style="flex:1;overflow-y:auto;padding:16px;background:#1a1a1a;color:#fff;">
       <img src="${wo.currentPhoto.url}" style="width:100%;border-radius:8px;display:block;margin-bottom:16px;" />
-      <div class="summary-card" style="margin-bottom:16px;">
-        ${wo.jobLocation ? `<div class="summary-row"><span class="label">Location</span><span class="value">${escapeHtml(wo.jobLocation.name)}</span></div>` : ''}
-        <div class="summary-row"><span class="label">Received</span><span class="value">${wo.dateReceived}</span></div>
-        ${wo.scheduledDate ? `<div class="summary-row"><span class="label">Scheduled</span><span class="value">${wo.scheduledDate}</span></div>` : ''}
-        ${wo.assignedTo ? `<div class="summary-row"><span class="label">Assigned to</span><span class="value">${escapeHtml(wo.assignedTo.name)}</span></div>` : ''}
-        ${wo.completedAt ? `<div class="summary-row"><span class="label">Completed</span><span class="value">${wo.completedAt.slice(0,10)}</span></div>` : ''}
+      <div style="background:rgba(255,255,255,0.1);border-radius:10px;padding:12px;margin-bottom:16px;">
+        ${wo.jobLocation ? `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);"><span style="color:rgba(255,255,255,0.6);">Location</span><span style="font-weight:700;">${escapeHtml(wo.jobLocation.name)}</span></div>` : ''}
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);"><span style="color:rgba(255,255,255,0.6);">Received</span><span style="font-weight:700;">${wo.dateReceived}</span></div>
+        ${wo.scheduledDate ? `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);"><span style="color:rgba(255,255,255,0.6);">Scheduled</span><span style="font-weight:700;">${wo.scheduledDate}</span></div>` : ''}
+        ${wo.assignedTo ? `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);"><span style="color:rgba(255,255,255,0.6);">Assigned to</span><span style="font-weight:700;">${escapeHtml(wo.assignedTo.name)}</span></div>` : ''}
+        ${wo.completedAt ? `<div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:rgba(255,255,255,0.6);">Completed</span><span style="font-weight:700;">${wo.completedAt.slice(0,10)}</span></div>` : ''}
       </div>
       ${wo.details ? `
-        <div style="font-weight:600; font-size:13px; margin-bottom:6px;">Work order details</div>
-        <div style="background:var(--paper-dim); border-radius:8px; padding:12px; font-size:13px; white-space:pre-line; margin-bottom:16px;">${escapeHtml(wo.details)}</div>
+        <div style="font-weight:600;font-size:13px;margin-bottom:6px;">Work order details</div>
+        <div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:12px;font-size:13px;white-space:pre-line;margin-bottom:16px;color:#fff;">${escapeHtml(wo.details)}</div>
       ` : ''}
       <div id="wo-detail-error"></div>
       <div style="display:flex;flex-direction:column;gap:10px;">
-        ${canComplete ? `<button class="btn btn-primary" id="wo-detail-complete">Mark complete &amp; ready to bill</button>` : ''}
-        ${canBill ? `<button class="btn btn-primary" id="wo-detail-bill">Mark as billed</button>` : ''}
-        ${canUpdatePhoto ? `<button class="btn btn-ghost" id="wo-detail-photo">Update work order photo</button>` : ''}
-        ${canReassign ? `<button class="btn btn-ghost" id="wo-detail-reassign">Reassign</button>` : ''}
+        ${canComplete ? `<button class="btn btn-primary" id="wo-detail-complete" style="background:#16a34a;color:#fff;border:none;">Mark complete &amp; ready to bill</button>` : ''}
+        ${canBill ? `<button class="btn btn-primary" id="wo-detail-bill" style="background:#16a34a;color:#fff;border:none;">Mark as billed</button>` : ''}
+        ${canUpdatePhoto ? `<button class="btn btn-ghost" id="wo-detail-photo" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4);">Update work order photo</button>` : ''}
+        ${canReassign ? `<button class="btn btn-ghost" id="wo-detail-reassign" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4);">Reassign</button>` : ''}
       </div>
     </div>
   `;
@@ -453,4 +458,120 @@ async function checkPendingWorkOrders() {
   } catch (err) {
     console.error('Could not check work orders:', err);
   }
+}
+
+function showEditWorkOrderDialog(wo) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;overflow-y:auto;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;max-height:85vh;overflow-y:auto;">
+      <div style="font-weight:700;font-size:17px;margin-bottom:4px;">Edit work order</div>
+      <div class="screen-sub" style="margin-bottom:14px;">WO# ${escapeHtml(wo.woNumber)}</div>
+
+      <div class="field">
+        <label for="edit-wo-scheduled">Scheduled date</label>
+        <input id="edit-wo-scheduled" type="date" value="${wo.scheduledDate || ''}" />
+      </div>
+      <div class="field">
+        <label for="edit-wo-location">Job location</label>
+        <select id="edit-wo-location">
+          <option value="">No location</option>
+          ${(state.jobLocations || []).map(l => `<option value="${l.id}" ${wo.jobLocation?.id === l.id ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label for="edit-wo-assigned">Assigned to</label>
+        <select id="edit-wo-assigned">
+          <option value="">Unassigned</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="edit-wo-details">Work order details</label>
+        <textarea id="edit-wo-details" rows="5" placeholder="Address, phone number, job description...">${wo.details ? escapeHtml(wo.details) : ''}</textarea>
+      </div>
+      <div class="field">
+        <label>Update photo (optional)</label>
+        <input id="edit-wo-photo" type="file" accept="image/*" capture="environment" />
+        <div class="screen-sub">Previous photo will be kept in history.</div>
+      </div>
+      <div id="edit-wo-error"></div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-ghost" id="edit-wo-cancel">Cancel</button>
+        <button class="btn btn-primary" id="edit-wo-save">Save changes</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Load people for assignment dropdown
+  api(withCompany('/dashboard')).then(data => {
+    const sel = document.getElementById('edit-wo-assigned');
+    if (!sel) return;
+    (data.people || []).forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = `${p.firstName} ${p.lastName} (${p.role})`;
+      if (wo.assignedTo?.id === p.id) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }).catch(() => {});
+
+  let newImageBase64 = null, newMimeType = null;
+  document.getElementById('edit-wo-photo').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      newImageBase64 = ev.target.result.split(',')[1];
+      newMimeType = file.type;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  document.getElementById('edit-wo-cancel').addEventListener('click', () => document.body.removeChild(overlay));
+
+  document.getElementById('edit-wo-save').addEventListener('click', async () => {
+    const scheduledDate = document.getElementById('edit-wo-scheduled').value || null;
+    const jobLocationId = document.getElementById('edit-wo-location').value || null;
+    const assignedToId = document.getElementById('edit-wo-assigned').value || null;
+    const details = document.getElementById('edit-wo-details').value.trim() || null;
+    const errorEl = document.getElementById('edit-wo-error');
+    errorEl.innerHTML = '';
+
+    const btn = document.getElementById('edit-wo-save');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      await api('/work-orders', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          companyId: state.activeCompanyId,
+          workOrderId: wo.id,
+          action: 'update_details',
+          scheduledDate, jobLocationId, assignedToId, details,
+        }),
+      });
+
+      if (newImageBase64) {
+        await api('/work-orders', {
+          method: 'PATCH',
+          body: JSON.stringify({
+            companyId: state.activeCompanyId,
+            workOrderId: wo.id,
+            action: 'update_photo',
+            imageBase64: newImageBase64,
+            mimeType: newMimeType,
+          }),
+        });
+      }
+
+      document.body.removeChild(overlay);
+      render('approvals', { subView: 'schedule' });
+    } catch (err) {
+      errorEl.innerHTML = errorHtml(err.message);
+      btn.disabled = false;
+      btn.textContent = 'Save changes';
+    }
+  });
 }
