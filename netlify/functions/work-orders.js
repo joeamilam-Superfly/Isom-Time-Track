@@ -28,13 +28,16 @@ exports.handler = async (event) => {
       .eq('company_id', companyId)
       .order('created_at', { ascending: false });
 
-    // Employees and foremen only see WOs assigned to them
-    if (myRole.role === 'employee' || myRole.role === 'foreman') {
+    // Employees only see WOs assigned to them.
+    // Foremen and admins see all company WOs so the scheduling grid
+    // correctly shows work orders assigned to any team member.
+    if (myRole.role === 'employee') {
       query = query.eq('assigned_to_id', auth.employeeId);
     }
 
     if (params.status) query = query.eq('status', params.status);
     if (params.locationId) query = query.eq('job_location_id', params.locationId);
+    if (params.woNumber) query = query.eq('wo_number', params.woNumber);
 
     const { data, error } = await query;
     if (error) return errorResponse(error);
@@ -161,6 +164,20 @@ exports.handler = async (event) => {
 
     if (fetchError) return errorResponse(fetchError);
     if (!wo) return { statusCode: 404, body: JSON.stringify({ error: 'Work order not found' }) };
+
+    // ---- update details (scheduled date, location, assignment, notes) ----
+    if (action === 'update_details') {
+      if (myRole.role === 'employee') return forbidden('Only foremen and admins can update work orders');
+      const { jobLocationId, scheduledDate: newScheduledDate, assignedToId: newAssignedToId, details: newDetails } = body;
+      const updateFields = { updated_at: new Date().toISOString() };
+      if (newScheduledDate !== undefined) updateFields.scheduled_date = newScheduledDate || null;
+      if (jobLocationId !== undefined) updateFields.job_location_id = jobLocationId || null;
+      if (newAssignedToId !== undefined) updateFields.assigned_to_id = newAssignedToId || null;
+      if (newDetails !== undefined) updateFields.details = newDetails || null;
+      const { error } = await supabase.from('work_orders').update(updateFields).eq('id', workOrderId);
+      if (error) return errorResponse(error);
+      return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+    }
 
     // ---- reassign ----
     if (action === 'reassign') {
