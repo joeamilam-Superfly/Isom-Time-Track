@@ -50,6 +50,7 @@ function workOrderCardHtml(wo, myRole) {
           ${wo.scheduledDate ? `<span>Scheduled: ${wo.scheduledDate}</span>` : ''}
           ${wo.assignedTo ? `<span>${escapeHtml(wo.assignedTo.name)}</span>` : ''}
         </div>
+        ${wo.details ? `<div style="margin-top:6px; font-size:12px; color:var(--ink); white-space:pre-line; background:var(--paper-dim); border-radius:6px; padding:8px 10px;">${escapeHtml(wo.details)}</div>` : ''}
         <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
           ${wo.currentPhoto ? `<button class="btn btn-sm btn-ghost" data-wo-view="${wo.id}">View WO</button>` : ''}
           ${canComplete ? `<button class="btn btn-sm btn-primary" data-wo-complete="${wo.id}">Mark complete</button>` : ''}
@@ -85,6 +86,10 @@ function showWorkOrderDetail(workOrderId, wos) {
         ${wo.assignedTo ? `<div class="summary-row"><span class="label">Assigned to</span><span class="value">${escapeHtml(wo.assignedTo.name)}</span></div>` : ''}
         ${wo.completedAt ? `<div class="summary-row"><span class="label">Completed</span><span class="value">${wo.completedAt.slice(0,10)}</span></div>` : ''}
       </div>
+      ${wo.details ? `
+        <div style="font-weight:600; font-size:13px; margin-bottom:6px;">Work order details</div>
+        <div style="background:var(--paper-dim); border-radius:8px; padding:12px; font-size:13px; white-space:pre-line; margin-bottom:16px;">${escapeHtml(wo.details)}</div>
+      ` : ''}
       <div id="wo-detail-error"></div>
       <div style="display:flex;flex-direction:column;gap:10px;">
         ${canComplete ? `<button class="btn btn-primary" id="wo-detail-complete">Mark complete &amp; ready to bill</button>` : ''}
@@ -194,6 +199,11 @@ function showCreateWorkOrderDialog() {
           <option value="">Unassigned</option>
         </select>
       </div>
+      <div class="field">
+        <label for="wo-details">Work order details (optional)</label>
+        <textarea id="wo-details" rows="5" placeholder="Address, phone number, job description, special instructions..."></textarea>
+        <div class="screen-sub">This text is visible to the tech directly on their schedule — no need to tap to see it.</div>
+      </div>
       <div id="wo-create-error"></div>
       <div class="btn-row" style="margin-top:8px;">
         <button class="btn btn-ghost" id="wo-create-cancel">Cancel</button>
@@ -239,6 +249,7 @@ function showCreateWorkOrderDialog() {
     const scheduledDate = document.getElementById('wo-scheduled-date').value || null;
     const jobLocationId = document.getElementById('wo-location').value || null;
     const assignedToId = document.getElementById('wo-assigned').value || null;
+    const details = document.getElementById('wo-details').value.trim() || null;
     const errorEl = document.getElementById('wo-create-error');
     errorEl.innerHTML = '';
 
@@ -254,7 +265,7 @@ function showCreateWorkOrderDialog() {
         method: 'POST',
         body: JSON.stringify({
           companyId: state.activeCompanyId,
-          woNumber, dateReceived, scheduledDate, jobLocationId, assignedToId,
+          woNumber, dateReceived, scheduledDate, jobLocationId, assignedToId, details,
           imageBase64, mimeType: imageMimeType,
         }),
       });
