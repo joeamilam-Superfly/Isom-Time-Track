@@ -8,6 +8,7 @@ async function renderDayEdit(opts) {
       <div class="screen-title">${formatDateLabel(date)}</div>
       <div class="screen-sub">${date === todayStr() ? "Today's hours" : 'Edit hours for this day'}</div>
       <div id="day-schedule-section"></div>
+      <div id="day-wo-section"></div>
       <div id="day-edit-banner"></div>
       <div id="segments-list">${loadingHtml()}</div>
       <div id="add-segment-section"></div>
@@ -33,6 +34,9 @@ async function renderDayEdit(opts) {
     state.currentDayDate = date;
     renderDaySchedule(scheduleData.entries || []);
     renderDaySegments(date, entriesData.entries || [], autoAdd);
+
+    // Show work orders assigned to this employee for this date
+    renderDayWorkOrders(date);
   } catch (err) {
     document.getElementById('segments-list').innerHTML = errorHtml(err.message);
   }
@@ -658,4 +662,51 @@ function showDeviationReasonPrompt(unattendedEntries) {
       resolve(reason);
     });
   });
+}
+
+// Shows work orders assigned to this employee that are scheduled for
+// this date, so a tech can see the WO details and mark it complete
+// directly from their day view without navigating to the Schedule tab.
+async function renderDayWorkOrders(date) {
+  const el = document.getElementById('day-wo-section');
+  if (!el) return;
+
+  try {
+    const data = await api(withCompany('/work-orders?status=open'));
+    const myWos = (data.workOrders || []).filter(wo =>
+      wo.scheduledDate === date &&
+      (wo.assignedTo?.id === state.employee.id || currentCompanyRole() !== 'employee')
+    );
+
+    if (myWos.length === 0) { el.innerHTML = ''; return; }
+
+    el.innerHTML = `
+      <div style="margin-bottom:14px;">
+        <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-soft); margin-bottom:6px;">Work orders for today</div>
+        ${myWos.map(wo => `
+          <div class="day-stub" style="margin-bottom:8px; cursor:pointer;" data-wo-day-view="${wo.id}">
+            <div class="day-stub-perf" style="background:#16a34a;"></div>
+            <div class="day-stub-body">
+              <div class="day-stub-top">
+                <div class="day-stub-date">WO# ${escapeHtml(wo.woNumber)}</div>
+                <div style="font-size:12px; color:var(--amber-dark); font-weight:600;">Open</div>
+              </div>
+              ${wo.jobLocation ? `<div class="day-stub-meta"><span>${escapeHtml(wo.jobLocation.name)}</span></div>` : ''}
+              <div style="font-size:12px; color:var(--ink-soft); margin-top:4px;">Tap to view work order &rarr;</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    el.querySelectorAll('[data-wo-day-view]').forEach(card => {
+      card.addEventListener('click', () => {
+        const woId = card.getAttribute('data-wo-day-view');
+        showWorkOrderDetail(woId, myWos);
+      });
+    });
+  } catch (err) {
+    console.error('Could not load day work orders:', err);
+    el.innerHTML = '';
+  }
 }
