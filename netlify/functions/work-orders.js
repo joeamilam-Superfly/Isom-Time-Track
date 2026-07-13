@@ -63,6 +63,29 @@ exports.handler = async (event) => {
       }));
     }
 
+    // Fetch time entries associated with each WO
+    let woTimeMap = {};
+    if (woIds.length > 0) {
+      const { data: woEntries } = await supabase
+        .from('time_entries')
+        .select('id, work_order_id, employee_id, entry_date, time_in, time_out, hours_worked, activity_description, status, employees!time_entries_employee_id_fkey(first_name, last_name)')
+        .in('work_order_id', woIds)
+        .order('entry_date', { ascending: true });
+      for (const e of woEntries || []) {
+        if (!woTimeMap[e.work_order_id]) woTimeMap[e.work_order_id] = [];
+        woTimeMap[e.work_order_id].push({
+          id: e.id,
+          employeeName: e.employees ? `${e.employees.first_name} ${e.employees.last_name}` : 'Unknown',
+          date: e.entry_date,
+          timeIn: e.time_in,
+          timeOut: e.time_out,
+          hoursWorked: Number(e.hours_worked),
+          activityDescription: e.activity_description,
+          status: e.status,
+        });
+      }
+    }
+
     const workOrders = (data || []).map(w => ({
       id: w.id,
       woNumber: w.wo_number,
@@ -76,6 +99,8 @@ exports.handler = async (event) => {
       assignedTo: w.employees ? { id: w.employees.id, name: `${w.employees.first_name} ${w.employees.last_name}` } : null,
       completedBy: w.completed_by ? { id: w.completed_by.id, name: `${w.completed_by.first_name} ${w.completed_by.last_name}` } : null,
       currentPhoto: photoMap[w.id] || null,
+      timeEntries: woTimeMap[w.id] || [],
+      totalHours: (woTimeMap[w.id] || []).reduce((sum, e) => sum + e.hoursWorked, 0),
     }));
 
     return { statusCode: 200, body: JSON.stringify({ workOrders }) };
