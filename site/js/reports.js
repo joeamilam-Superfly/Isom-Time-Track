@@ -38,6 +38,7 @@ async function renderReports() {
   root.innerHTML = `
     ${topbarHtml()}
     <main>
+      ${roleTabsHtml('reports')}
       <div class="screen-title">Reports</div>
 
       <div style="background:#1a1a1a; border-radius:12px; padding:20px; margin-bottom:16px; color:#fff;">
@@ -83,6 +84,7 @@ async function renderReports() {
   `;
 
   attachTopbarHandlers();
+  attachRoleTabHandlers();
   renderPeriodValueSelector();
 
   document.querySelectorAll('[data-period-type]').forEach(btn => {
