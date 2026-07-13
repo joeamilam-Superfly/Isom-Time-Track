@@ -47,6 +47,7 @@ async function renderWeek(opts) {
 
   checkPendingScheduleChanges();
   checkPendingLeaveRequests();
+  checkPendingWorkOrders();
 }
 
 function renderWeekSummary(summary) {
