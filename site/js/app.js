@@ -168,6 +168,7 @@ function render(view, opts) {
   if (view === 'admin') return renderAdmin(opts || {});
   if (view === 'timeoff') return renderTimeOff(opts || {});
   if (view === 'team') return renderTeam(opts || {});
+  if (view === 'reports') return renderReports(opts || {});
   if (view === 'platform') return renderPlatform(opts || {});
   if (view === 'photolog') return renderPhotoLog(opts || {});
 }
