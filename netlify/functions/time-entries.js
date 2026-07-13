@@ -79,7 +79,7 @@ exports.handler = async (event) => {
 
     let query = supabase
       .from('time_entries')
-      .select('*, job_locations(name), employees!time_entries_foreman_id_fkey(first_name, last_name)')
+      .select('*, job_locations(name), employees!time_entries_foreman_id_fkey(first_name, last_name), work_orders(id, wo_number)')
       .eq('employee_id', targetEmployeeId)
       .eq('company_id', companyId)
       .order('entry_date', { ascending: true })
@@ -122,7 +122,7 @@ exports.handler = async (event) => {
 
     const {
       entryDate, jobLocationId, activityDescription,
-      timeIn, timeOut, hoursType, foremanId,
+      timeIn, timeOut, hoursType, foremanId, workOrderId,
     } = body;
 
     if (!entryDate) {
@@ -189,6 +189,7 @@ exports.handler = async (event) => {
       hours_type: hoursType || 'regular',
       is_weekend: weekend,
       is_holiday: holiday,
+      work_order_id: workOrderId || null,
       status: 'draft',
     };
 
@@ -211,7 +212,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid request body' }) };
     }
 
-    const { entryId, companyId, jobLocationId, activityDescription, timeIn, timeOut, foremanId, entryDate } = body;
+    const { entryId, companyId, jobLocationId, activityDescription, timeIn, timeOut, foremanId, entryDate, workOrderId } = body;
     if (!entryId) return { statusCode: 400, body: JSON.stringify({ error: 'entryId is required' }) };
     if (!companyId) return { statusCode: 400, body: JSON.stringify({ error: 'companyId is required' }) };
 
@@ -305,7 +306,8 @@ exports.handler = async (event) => {
       hours_worked: computedHours,
       is_weekend: finalIsWeekend,
       is_holiday: finalIsHoliday,
-      status: myRole.role === 'admin' ? existing.status : 'draft', // non-admin edits reset to draft for re-approval
+      work_order_id: workOrderId !== undefined ? (workOrderId || null) : existing.work_order_id,
+      status: myRole.role === 'admin' ? existing.status : 'draft',
       updated_at: new Date().toISOString(),
     };
 
