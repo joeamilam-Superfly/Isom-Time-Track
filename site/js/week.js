@@ -217,6 +217,7 @@ function roleTabsHtml(active) {
     tabs.push({ id: 'team', label: 'Team' });
   }
   if (role === 'admin') tabs.push({ id: 'admin', label: 'Admin' });
+  if (role === 'admin') tabs.push({ id: 'reports', label: 'Reports' });
   if (state.employee.superAdmin) tabs.push({ id: 'platform', label: 'Platform' });
   return `
     <div class="nav-tabs">
