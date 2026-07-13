@@ -258,9 +258,52 @@ function showCreateWorkOrderDialog() {
 
     const btn = document.getElementById('wo-create-save');
     btn.disabled = true;
-    btn.textContent = 'Creating...';
+    btn.textContent = 'Checking...';
 
     try {
+      // Check for an existing WO with this number before creating
+      const existing = await api(withCompany(`/work-orders?woNumber=${encodeURIComponent(woNumber)}`));
+      const existingWo = (existing.workOrders || [])[0];
+
+      if (existingWo) {
+        btn.disabled = false;
+        btn.textContent = 'Create work order';
+        const update = confirm(
+          `Work order #${woNumber} already exists (assigned to ${existingWo.assignedTo?.name || 'unassigned'}, scheduled ${existingWo.scheduledDate || 'no date'}).\n\nDo you want to UPDATE the existing work order instead of creating a duplicate?`
+        );
+        if (!update) return;
+
+        // Update the existing WO with the new values
+        btn.disabled = true;
+        btn.textContent = 'Updating...';
+        await api('/work-orders', {
+          method: 'PATCH',
+          body: JSON.stringify({
+            companyId: state.activeCompanyId,
+            workOrderId: existingWo.id,
+            action: 'update_details',
+            scheduledDate, jobLocationId, assignedToId, details,
+          }),
+        });
+        // Also update photo if a new one was taken
+        if (imageBase64) {
+          await api('/work-orders', {
+            method: 'PATCH',
+            body: JSON.stringify({
+              companyId: state.activeCompanyId,
+              workOrderId: existingWo.id,
+              action: 'update_photo',
+              imageBase64, mimeType: imageMimeType,
+            }),
+          });
+        }
+        document.body.removeChild(overlay);
+        render('approvals', { subView: 'schedule' });
+        return;
+      }
+
+      // No duplicate — create new
+      btn.textContent = 'Creating...';
       await api('/work-orders', {
         method: 'POST',
         body: JSON.stringify({
