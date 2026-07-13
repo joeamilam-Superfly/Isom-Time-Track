@@ -692,6 +692,7 @@ async function renderDayWorkOrders(date) {
                 <div style="font-size:12px; color:var(--amber-dark); font-weight:600;">Open</div>
               </div>
               ${wo.jobLocation ? `<div class="day-stub-meta"><span>${escapeHtml(wo.jobLocation.name)}</span></div>` : ''}
+              ${wo.details ? `<div style="font-size:11px; color:var(--ink); margin-top:4px; white-space:pre-line; background:var(--paper-dim); border-radius:4px; padding:6px 8px;">${escapeHtml(wo.details)}</div>` : ''}
               <div style="font-size:12px; color:var(--ink-soft); margin-top:4px;">Tap to view work order &rarr;</div>
             </div>
           </div>
