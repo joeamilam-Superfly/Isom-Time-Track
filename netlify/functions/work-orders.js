@@ -19,7 +19,7 @@ exports.handler = async (event) => {
     let query = supabase
       .from('work_orders')
       .select(`
-        id, wo_number, date_received, scheduled_date, status,
+        id, wo_number, date_received, scheduled_date, status, details,
         completed_at, created_at, updated_at,
         job_locations(id, name),
         employees!work_orders_assigned_to_id_fkey(id, first_name, last_name),
@@ -65,6 +65,7 @@ exports.handler = async (event) => {
       woNumber: w.wo_number,
       dateReceived: w.date_received,
       scheduledDate: w.scheduled_date,
+      details: w.details || null,
       status: w.status,
       completedAt: w.completed_at,
       createdAt: w.created_at,
@@ -84,7 +85,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid request body' }) };
     }
 
-    const { companyId, jobLocationId, woNumber, dateReceived, scheduledDate, assignedToId, imageBase64, mimeType } = body;
+    const { companyId, jobLocationId, woNumber, dateReceived, scheduledDate, assignedToId, imageBase64, mimeType, details } = body;
     if (!companyId) return { statusCode: 400, body: JSON.stringify({ error: 'companyId is required' }) };
     if (!woNumber) return { statusCode: 400, body: JSON.stringify({ error: 'Work order number is required' }) };
     if (!dateReceived) return { statusCode: 400, body: JSON.stringify({ error: 'Date received is required' }) };
@@ -103,6 +104,7 @@ exports.handler = async (event) => {
         date_received: dateReceived,
         scheduled_date: scheduledDate || null,
         assigned_to_id: assignedToId || null,
+        details: details || null,
         status: 'open',
         created_by_id: auth.employeeId,
       })
