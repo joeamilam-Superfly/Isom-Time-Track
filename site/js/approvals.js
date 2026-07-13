@@ -49,6 +49,7 @@ async function renderApprovals(opts) {
 
   if (subView === 'schedule') {
     loadScheduleGrid(weekOf);
+    loadWorkOrdersSection();
     return;
   }
 
@@ -465,6 +466,67 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
   });
 }
 
+
+// Loads and renders the work orders section below the scheduling grid.
+// Shows all open + ready_to_bill WOs for admin/foreman, and only
+// assigned WOs for employees. Includes a "Create work order" button for
+// admin and foreman.
+async function loadWorkOrdersSection() {
+  const listEl = document.getElementById('approvals-list');
+  if (!listEl) return;
+
+  const myRole = currentCompanyRole();
+  const canCreate = myRole === 'admin' || myRole === 'foreman';
+
+  // Create or reuse the WO section below the grid
+  let woSection = document.getElementById('wo-section');
+  if (!woSection) {
+    woSection = document.createElement('div');
+    woSection.id = 'wo-section';
+    woSection.style.marginTop = '24px';
+    listEl.after(woSection);
+  }
+
+  woSection.innerHTML = `
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+      <div style="font-weight:700; font-size:16px;">Work Orders</div>
+      ${canCreate ? `<button class="btn btn-amber btn-sm" id="wo-create-btn">+ New work order</button>` : ''}
+    </div>
+    <div id="wo-list-content">${loadingHtml()}</div>
+  `;
+
+  if (canCreate) {
+    document.getElementById('wo-create-btn').addEventListener('click', showCreateWorkOrderDialog);
+  }
+
+  try {
+    const [openData, billingData] = await Promise.all([
+      api(withCompany('/work-orders?status=open')),
+      myRole === 'admin' ? api(withCompany('/work-orders?status=ready_to_bill')) : Promise.resolve({ workOrders: [] }),
+    ]);
+
+    const allWos = [...(billingData.workOrders || []), ...(openData.workOrders || [])];
+    const woContent = document.getElementById('wo-list-content');
+    if (!woContent) return;
+
+    if (allWos.length === 0) {
+      woContent.innerHTML = `<div class="screen-sub">No open work orders.</div>`;
+      return;
+    }
+
+    woContent.innerHTML = allWos.map(wo => workOrderCardHtml(wo, myRole)).join('');
+
+    woContent.querySelectorAll('[data-wo-view]').forEach(btn => {
+      btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-wo-view'), allWos));
+    });
+    woContent.querySelectorAll('[data-wo-complete]').forEach(btn => {
+      btn.addEventListener('click', () => completeWorkOrder(btn.getAttribute('data-wo-complete'), woContent));
+    });
+  } catch (err) {
+    const woContent = document.getElementById('wo-list-content');
+    if (woContent) woContent.innerHTML = errorHtml(err.message);
+  }
+}
 
 // Refreshes just the schedule grid in place after an assignment save,
 // preserving the scroll position so the admin stays at the same row
