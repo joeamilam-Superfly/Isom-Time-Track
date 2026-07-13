@@ -297,6 +297,14 @@ function showSegmentFormDialog(date, existing, latestSegment) {
         <div class="screen-sub">Defaults to your assigned foreman. If you worked for someone else on this job, change it here.</div>
       </div>
 
+      <div class="field" id="seg-wo-field" style="display:none;">
+        <label for="seg-wo-select">Associate with work order (optional)</label>
+        <select id="seg-wo-select">
+          <option value="">No work order</option>
+        </select>
+        <div class="screen-sub">Link this time segment to a specific work order for billing purposes.</div>
+      </div>
+
       <div class="screen-sub">Taking a lunch or break? Log it as its own segment, the same way you'd log time at a job site - just pick (or add) a job location named "Lunch" or "Break".</div>
 
       <div id="seg-computed-hours" class="banner banner-ok" style="display:none;"></div>
@@ -317,6 +325,25 @@ function showSegmentFormDialog(date, existing, latestSegment) {
 
   setupSegmentLocationAutocomplete();
   setupSegmentHoursPreview();
+
+  // Load work orders assigned to this employee for the WO association dropdown
+  api(withCompany('/work-orders?status=open')).then(data => {
+    const myWos = (data.workOrders || []).filter(wo =>
+      wo.assignedTo?.id === state.employee.id || currentCompanyRole() !== 'employee'
+    );
+    const woField = document.getElementById('seg-wo-field');
+    const woSel = document.getElementById('seg-wo-select');
+    if (myWos.length > 0 && woField && woSel) {
+      woField.style.display = 'block';
+      myWos.forEach(wo => {
+        const opt = document.createElement('option');
+        opt.value = wo.id;
+        opt.textContent = `WO# ${wo.woNumber}${wo.jobLocation ? ' — ' + wo.jobLocation.name : ''}`;
+        if (existing?.work_order_id === wo.id) opt.selected = true;
+        woSel.appendChild(opt);
+      });
+    }
+  }).catch(() => {});
 
   document.getElementById('seg-dialog-save').addEventListener('click', () => saveSegment(date, existing, overlay, false));
 
@@ -418,6 +445,7 @@ async function saveSegment(date, existing, overlay, keepOpen) {
     const timeIn = document.getElementById('seg-time-in').value;
     const timeOut = document.getElementById('seg-time-out').value;
     const foremanId = document.getElementById('seg-foreman-select').value || null;
+    const workOrderId = document.getElementById('seg-wo-select')?.value || null;
     const entryDateField = document.getElementById('seg-entry-date');
     const entryDate = entryDateField ? entryDateField.value || undefined : undefined;
 
@@ -470,6 +498,7 @@ async function saveSegment(date, existing, overlay, keepOpen) {
           timeIn,
           timeOut,
           entryDate,
+          workOrderId,
         }),
       });
     } else {
@@ -485,6 +514,7 @@ async function saveSegment(date, existing, overlay, keepOpen) {
           timeIn,
           timeOut,
           hoursType: 'regular',
+          workOrderId,
         }),
       });
     }
