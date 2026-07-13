@@ -525,6 +525,38 @@ async function exportWeekCsv(weekOf, summaries) {
     rows.push(['ALL EMPLOYEES', '', '', 'Week receipt total', grandTotal.toFixed(2), '', '']);
   }
 
+  // Work orders section - completed WOs ready to bill this week
+  try {
+    const woData = await api(withCompany('/work-orders?status=ready_to_bill'));
+    const wos = (woData.workOrders || []).filter(wo => {
+      if (!wo.completedAt) return false;
+      const completedDate = wo.completedAt.slice(0, 10);
+      return completedDate >= weekOf && completedDate <= weekEnd;
+    });
+
+    if (wos.length > 0) {
+      rows.push([]);
+      rows.push(['--- WORK ORDERS READY TO BILL ---', '', '', '', '']);
+      rows.push(['WO Number', 'Job Location', 'Completed By', 'Completed Date', 'Status']);
+      rows.push([]);
+
+      for (const wo of wos) {
+        rows.push([
+          wo.woNumber,
+          wo.jobLocation ? wo.jobLocation.name : '',
+          wo.completedBy ? wo.completedBy.name : '',
+          wo.completedAt ? wo.completedAt.slice(0, 10) : '',
+          'READY TO BILL',
+        ]);
+      }
+
+      rows.push([]);
+      rows.push([`${wos.length} work order${wos.length !== 1 ? 's' : ''} ready to bill`, '', '', '', '']);
+    }
+  } catch (err) {
+    console.error('Could not fetch work orders for CSV:', err);
+  }
+
   const csv = rows.map(row => row.map(csvEscape).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
