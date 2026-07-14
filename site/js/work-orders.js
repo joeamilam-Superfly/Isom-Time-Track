@@ -119,56 +119,66 @@ function showWorkOrderDetail(workOrderId, wos) {
         ${canComplete ? `<button class="btn btn-primary" id="wo-detail-complete" style="background:#16a34a;color:#fff;border:none;">Mark complete &amp; ready to bill</button>` : ''}
         ${canBill ? `<button class="btn btn-primary" id="wo-detail-bill" style="background:#16a34a;color:#fff;border:none;">Mark as billed</button>` : ''}
         <button id="wo-add-time-btn" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">+ Log time toward this WO</button>
-        ${canUpdatePhoto ? `<button class="btn btn-ghost" id="wo-detail-photo" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4);">Update work order photo</button>` : ''}
-        ${canReassign ? `<button class="btn btn-ghost" id="wo-detail-reassign" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4);">Reassign</button>` : ''}
+        ${canUpdatePhoto ? `<button id="wo-detail-photo" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">Update work order photo</button>` : ''}
+        ${canReassign ? `<button id="wo-detail-reassign" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">Reassign</button>` : ''}
+        ${canReassign ? `<button id="wo-detail-edit" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">Edit work order</button>` : ''}
       </div>
     </div>
   `;
   document.body.appendChild(overlay);
 
-  document.getElementById('wo-close').addEventListener('click', () => document.body.removeChild(overlay));
+  // Use overlay-scoped querySelector instead of document.getElementById
+  // so the close button works correctly on mobile even with other overlays
+  overlay.querySelector('#wo-close').addEventListener('click', () => {
+    if (document.body.contains(overlay)) document.body.removeChild(overlay);
+  });
+
 
   if (canComplete) {
-    document.getElementById('wo-detail-complete').addEventListener('click', async () => {
+    overlay.querySelector('#wo-detail-complete').addEventListener('click', async () => {
       try {
         await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'complete' }) });
-        document.body.removeChild(overlay);
+        if (document.body.contains(overlay)) document.body.removeChild(overlay);
         render('approvals', { subView: 'schedule' });
       } catch (err) {
-        document.getElementById('wo-detail-error').innerHTML = errorHtml(err.message);
+        overlay.querySelector('#wo-detail-error').innerHTML = errorHtml(err.message);
       }
     });
   }
 
   if (canBill) {
-    document.getElementById('wo-detail-bill').addEventListener('click', async () => {
+    overlay.querySelector('#wo-detail-bill').addEventListener('click', async () => {
       if (!confirm('Mark this work order as billed? This cannot be undone.')) return;
       try {
         await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'bill' }) });
-        document.body.removeChild(overlay);
+        if (document.body.contains(overlay)) document.body.removeChild(overlay);
         render('approvals', { subView: 'schedule' });
       } catch (err) {
-        document.getElementById('wo-detail-error').innerHTML = errorHtml(err.message);
+        overlay.querySelector('#wo-detail-error').innerHTML = errorHtml(err.message);
       }
     });
   }
 
   if (canUpdatePhoto) {
-    document.getElementById('wo-detail-photo').addEventListener('click', () => {
-      document.body.removeChild(overlay);
+    overlay.querySelector('#wo-detail-photo').addEventListener('click', () => {
+      if (document.body.contains(overlay)) document.body.removeChild(overlay);
       showUpdateWorkOrderPhotoDialog(wo.id);
     });
   }
 
-  document.getElementById('wo-add-time-btn').addEventListener('click', () => {
-    document.body.removeChild(overlay);
+  overlay.querySelector('#wo-add-time-btn').addEventListener('click', () => {
+    if (document.body.contains(overlay)) document.body.removeChild(overlay);
     showLogWoTimeDialog(wo);
   });
 
   if (canReassign) {
-    document.getElementById('wo-detail-reassign').addEventListener('click', () => {
-      document.body.removeChild(overlay);
+    overlay.querySelector('#wo-detail-reassign').addEventListener('click', () => {
+      if (document.body.contains(overlay)) document.body.removeChild(overlay);
       showReassignDialog(wo.id);
+    });
+    overlay.querySelector('#wo-detail-edit').addEventListener('click', () => {
+      if (document.body.contains(overlay)) document.body.removeChild(overlay);
+      showEditWorkOrderDialog(wo);
     });
   }
 }
