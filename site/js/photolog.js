@@ -13,14 +13,14 @@ async function renderPhotoLog(opts) {
     <main>
       ${roleTabsHtml('photolog')}
       <div class="screen-title">Job Site Photos</div>
-      <div class="screen-sub">Photos from every job site at this company.</div>
       <div class="field">
-        <label for="photolog-filter">Filter by job location</label>
+        <label for="photolog-filter">Job location</label>
         <select id="photolog-filter">
-          <option value="">All locations</option>
+          <option value="">— Select a job location to view photos —</option>
         </select>
+        <div class="screen-sub">Select a job location above to view its associated photos and receipts.</div>
       </div>
-      <div id="photolog-grid">${loadingHtml()}</div>
+      <div id="photolog-grid"></div>
     </main>
     <div class="bottom-bar">
       <button class="btn btn-amber" id="add-photo-btn">+ Add photo</button>
@@ -37,15 +37,22 @@ async function renderPhotoLog(opts) {
     state.jobLocations = locationsData.locations || [];
     const filterEl = document.getElementById('photolog-filter');
     filterEl.innerHTML = `
-      <option value="">All locations</option>
+      <option value="">— Select a job location to view photos —</option>
       ${state.jobLocations.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('')}
     `;
-    filterEl.addEventListener('change', () => loadPhotoLog(filterEl.value));
+    filterEl.addEventListener('change', () => {
+      const val = filterEl.value;
+      if (!val) {
+        document.getElementById('photolog-grid').innerHTML = '';
+        return;
+      }
+      loadPhotoLog(val);
+    });
   } catch (err) {
     console.error('Could not load job locations for filter:', err);
   }
 
-  loadPhotoLog('');
+  // Do not auto-load — wait for user to select a location
 }
 
 async function loadPhotoLog(jobLocationId) {
