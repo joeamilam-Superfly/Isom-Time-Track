@@ -12,6 +12,7 @@ const state = {
   currentWeekOf: null, // YYYY-MM-DD of the Sunday for the week being viewed
   jobLocations: [],
   foremen: [],
+  lastPeopleList: [],
   pendingLeaveRequestCount: 0, // count of leave requests assigned to this user awaiting decision // [{id, name, role}] - every foreman/admin at the active company
   weekEntries: {}, // date -> entry
   pendingLocationConfirm: null,
