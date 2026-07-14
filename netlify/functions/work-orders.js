@@ -42,25 +42,32 @@ exports.handler = async (event) => {
     const { data, error } = await query;
     if (error) return errorResponse(error);
 
-    // Fetch current photo for each WO and generate signed URLs
+    // Fetch ALL photos per WO (current + historical) for display in detail view
     const woIds = (data || []).map(w => w.id);
     let photoMap = {};
     if (woIds.length > 0) {
       const { data: photos } = await supabase
         .from('work_order_photos')
-        .select('work_order_id, storage_path, uploaded_at')
+        .select('work_order_id, storage_path, is_current, uploaded_at')
         .in('work_order_id', woIds)
-        .eq('is_current', true);
+        .order('uploaded_at', { ascending: false });
 
-      await Promise.all((photos || []).map(async p => {
+      const withUrls = await Promise.all((photos || []).map(async p => {
         const { data: signed } = await supabase.storage
           .from(WO_BUCKET)
           .createSignedUrl(p.storage_path, 60 * 30);
-        photoMap[p.work_order_id] = {
+        return {
+          workOrderId: p.work_order_id,
           url: signed?.signedUrl || null,
+          isCurrent: p.is_current,
           uploadedAt: p.uploaded_at,
         };
       }));
+
+      for (const p of withUrls) {
+        if (!photoMap[p.workOrderId]) photoMap[p.workOrderId] = [];
+        photoMap[p.workOrderId].push(p);
+      }
     }
 
     // Fetch time entries associated with each WO
@@ -98,7 +105,8 @@ exports.handler = async (event) => {
       jobLocation: w.job_locations ? { id: w.job_locations.id, name: w.job_locations.name } : null,
       assignedTo: w.employees ? { id: w.employees.id, name: `${w.employees.first_name} ${w.employees.last_name}` } : null,
       completedBy: w.completed_by ? { id: w.completed_by.id, name: `${w.completed_by.first_name} ${w.completed_by.last_name}` } : null,
-      currentPhoto: photoMap[w.id] || null,
+      currentPhoto: (photoMap[w.id] || []).find(p => p.isCurrent) || null,
+      allPhotos: photoMap[w.id] || [],
       timeEntries: woTimeMap[w.id] || [],
       totalHours: (woTimeMap[w.id] || []).reduce((sum, e) => sum + e.hoursWorked, 0),
     }));
