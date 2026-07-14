@@ -585,6 +585,15 @@ async function loadWorkOrdersSection() {
     woContent.querySelectorAll('[data-wo-view]').forEach(btn => {
       btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-wo-view'), allWos));
     });
+    woContent.querySelectorAll('[data-wo-submit]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Submit this work order to your foreman for approval?')) return;
+        try {
+          await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: btn.getAttribute('data-wo-submit'), action: 'submit' }) });
+          loadWorkOrdersSection();
+        } catch (err) { alert(err.message); }
+      });
+    });
     woContent.querySelectorAll('[data-wo-complete]').forEach(btn => {
       btn.addEventListener('click', () => completeWorkOrder(btn.getAttribute('data-wo-complete'), woContent));
     });
