@@ -88,6 +88,9 @@ async function renderMyWorkOrders(container) {
     container.querySelectorAll('[data-wo-view]').forEach(btn => {
       btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-wo-view'), wos));
     });
+    container.querySelectorAll('[data-wo-submit]').forEach(btn => {
+      btn.addEventListener('click', () => submitWorkOrder(btn.getAttribute('data-wo-submit'), container, wos));
+    });
     container.querySelectorAll('[data-wo-complete]').forEach(btn => {
       btn.addEventListener('click', () => completeWorkOrder(btn.getAttribute('data-wo-complete'), container));
     });
@@ -101,10 +104,12 @@ async function renderMyWorkOrders(container) {
 }
 
 function workOrderCardHtml(wo, myRole) {
-  const statusLabel = { open: 'Open', ready_to_bill: 'Ready to bill', billed: 'Billed' }[wo.status] || wo.status;
-  const statusColor = { open: 'var(--amber-dark)', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)' }[wo.status];
-  const canComplete = wo.status === 'open' && (myRole === 'admin' || myRole === 'foreman' || wo.assignedTo?.id === state.employee.id);
+  const statusLabel = { open: 'Open', submitted: 'Pending review', ready_to_bill: 'Ready to bill', billed: 'Billed' }[wo.status] || wo.status;
+  const statusColor = { open: 'var(--amber-dark)', submitted: '#7c3aed', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)' }[wo.status];
+  const canComplete = (wo.status === 'open' || wo.status === 'submitted') && (myRole === 'admin' || myRole === 'foreman');
+  const canSubmit = wo.status === 'open' && myRole === 'employee' && wo.assignedTo?.id === state.employee.id;
   const canManage = myRole === 'admin' || myRole === 'foreman';
+  const pendingReview = wo.status === 'submitted' && (myRole === 'admin' || myRole === 'foreman');
 
   return `
     <div class="day-stub" style="margin-bottom:10px;">
@@ -120,9 +125,11 @@ function workOrderCardHtml(wo, myRole) {
           ${wo.assignedTo ? `<span>${escapeHtml(wo.assignedTo.name)}</span>` : ''}
         </div>
         ${wo.details ? `<div style="margin-top:6px; font-size:12px; color:var(--ink); white-space:pre-line; background:var(--paper-dim); border-radius:6px; padding:8px 10px;">${escapeHtml(wo.details)}</div>` : ''}
+        ${pendingReview ? `<div style="background:#7c3aed;color:#fff;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:600;margin-bottom:6px;">⏳ Submitted by tech — awaiting your approval</div>` : ''}
         <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
           <button class="btn btn-sm btn-ghost" data-wo-view="${wo.id}">View WO</button>
-          ${canComplete ? `<button class="btn btn-sm btn-primary" data-wo-complete="${wo.id}">Mark complete</button>` : ''}
+          ${canSubmit ? `<button class="btn btn-sm btn-primary" data-wo-submit="${wo.id}">Submit for approval</button>` : ''}
+          ${canComplete ? `<button class="btn btn-sm btn-primary" data-wo-complete="${wo.id}">${wo.status === 'submitted' ? 'Approve &amp; complete' : 'Mark complete'}</button>` : ''}
           ${canManage ? `<button class="btn btn-sm btn-ghost" data-wo-edit="${wo.id}">Edit</button>` : ''}
         </div>
       </div>
@@ -136,9 +143,11 @@ function showWorkOrderDetail(workOrderId, wos) {
   if (!wo) return;
 
   const myRole = currentCompanyRole();
-  const canComplete = wo.status === 'open' && (myRole === 'admin' || myRole === 'foreman' || wo.assignedTo?.id === state.employee.id);
+  const canComplete = (wo.status === 'open' || wo.status === 'submitted') && (myRole === 'admin' || myRole === 'foreman');
+  const canSubmit = wo.status === 'open' && myRole === 'employee' && wo.assignedTo?.id === state.employee.id;
   const canManage = myRole === 'admin' || myRole === 'foreman';
   const canBill = myRole === 'admin' && wo.status === 'ready_to_bill';
+  const pendingReview = wo.status === 'submitted' && (myRole === 'admin' || myRole === 'foreman');
 
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:#1a1a1a;display:flex;flex-direction:column;z-index:200;';
@@ -196,7 +205,9 @@ function showWorkOrderDetail(workOrderId, wos) {
 
       <div id="wo-detail-error"></div>
       <div style="display:flex;flex-direction:column;gap:10px;padding-bottom:20px;">
-        ${canComplete ? `<button id="wo-detail-complete" style="background:#16a34a;color:#fff;border:none;padding:14px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">Mark complete &amp; ready to bill</button>` : ''}
+        ${pendingReview ? `<div style="background:#7c3aed;border-radius:8px;padding:12px;font-size:13px;font-weight:600;text-align:center;">⏳ Tech has submitted — awaiting your approval</div>` : ''}
+        ${canComplete ? `<button id="wo-detail-complete" style="background:#16a34a;color:#fff;border:none;padding:14px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">${wo.status === 'submitted' ? 'Approve &amp; mark complete' : 'Mark complete &amp; ready to bill'}</button>` : ''}
+        ${canSubmit ? `<button id="wo-detail-submit" style="background:#7c3aed;color:#fff;border:none;padding:14px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">Submit for foreman approval</button>` : ''}
         ${canBill ? `<button id="wo-detail-bill" style="background:#16a34a;color:#fff;border:none;padding:14px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">Mark as billed</button>` : ''}
         <button id="wo-add-time-btn" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">+ Log time toward this WO</button>
         ${canManage ? `<button id="wo-detail-edit" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">Edit work order</button>` : ''}
@@ -264,10 +275,33 @@ function showWorkOrderDetail(workOrderId, wos) {
 
   overlay.querySelector('#wo-add-time-btn').addEventListener('click', () => { close(); showLogWoTimeDialog(wo); });
 
+  if (canSubmit) {
+    overlay.querySelector('#wo-detail-submit').addEventListener('click', async () => {
+      if (!confirm('Submit this work order to your foreman for approval?')) return;
+      try {
+        await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'submit' }) });
+        close();
+        render('approvals', { subView: 'schedule' });
+      } catch (err) {
+        overlay.querySelector('#wo-detail-error').innerHTML = errorHtml(err.message);
+      }
+    });
+  }
+
   if (canManage) {
     overlay.querySelector('#wo-detail-edit').addEventListener('click', () => { close(); showEditWorkOrderDialog(wo); });
     overlay.querySelector('#wo-detail-photo').addEventListener('click', () => { close(); showUpdateWorkOrderPhotoDialog(wo.id); });
     overlay.querySelector('#wo-detail-reassign').addEventListener('click', () => { close(); showReassignDialog(wo.id); });
+  }
+}
+
+async function submitWorkOrder(workOrderId, container, wos) {
+  if (!confirm('Submit this work order to your foreman for approval?')) return;
+  try {
+    await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId, action: 'submit' }) });
+    await renderMyWorkOrders(container);
+  } catch (err) {
+    alert(err.message);
   }
 }
 
@@ -552,6 +586,10 @@ function showEditWorkOrderDialog(wo) {
       </div>
       <div class="screen-sub" style="margin-bottom:14px;">WO# ${escapeHtml(wo.woNumber)}</div>
       <div class="field">
+        <label for="edit-wo-number">Work order number</label>
+        <input id="edit-wo-number" type="text" value="${escapeHtml(wo.woNumber)}" />
+      </div>
+      <div class="field">
         <label for="edit-wo-scheduled">Scheduled date</label>
         <input id="edit-wo-scheduled" type="date" value="${wo.scheduledDate || ''}" />
       </div>
@@ -604,6 +642,7 @@ function showEditWorkOrderDialog(wo) {
   });
 
   overlay.querySelector('#edit-wo-save').addEventListener('click', async () => {
+    const woNumber = overlay.querySelector('#edit-wo-number').value.trim();
     const scheduledDate = overlay.querySelector('#edit-wo-scheduled').value || null;
     const assignedToId = overlay.querySelector('#edit-wo-assigned').value || null;
     const details = overlay.querySelector('#edit-wo-details').value.trim() || null;
@@ -625,7 +664,7 @@ function showEditWorkOrderDialog(wo) {
     btn.disabled = true;
     btn.textContent = 'Saving...';
     try {
-      await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'update_details', scheduledDate, jobLocationId, assignedToId, details }) });
+      await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'update_details', woNumber, scheduledDate, jobLocationId, assignedToId, details }) });
       if (newImageBase64) {
         await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'update_photo', imageBase64: newImageBase64, mimeType: newMimeType }) });
       }
