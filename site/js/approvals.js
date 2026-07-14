@@ -167,6 +167,7 @@ async function loadScheduleGrid(weekOf) {
     ]);
 
     state.jobLocations = locationsData.locations || [];
+    state.lastPeopleList = peopleData.people || [];
     state.scheduleWeekDays = week1Days; // dialog advances through current week
     renderScheduleGrid(peopleData.people || [], scheduleData.entries || [], week0Days, week1Days, week2Days, scheduleData.pendingLeave || [], woData.workOrders || []);
   } catch (err) {
@@ -549,7 +550,28 @@ async function loadWorkOrdersSection() {
       myRole === 'admin' ? api(withCompany('/work-orders?status=ready_to_bill')) : Promise.resolve({ workOrders: [] }),
     ]);
 
-    const allWos = [...(billingData.workOrders || []), ...(openData.workOrders || [])];
+    let allWos = [...(billingData.workOrders || []), ...(openData.workOrders || [])];
+
+    // Foremen only see WOs assigned to themselves or their crew.
+    // Admins see all WOs. The backend returns all for foremen so the
+    // scheduling grid badges work, but the card list should be scoped.
+    if (myRole === 'foreman') {
+      // Get this foreman's crew IDs from the people list already fetched for the grid
+      const crewIds = new Set(
+        (state.lastPeopleList || [])
+          .filter(p => p.foremanId === state.employee.id || p.id === state.employee.id)
+          .map(p => p.id)
+      );
+      // If crew list isn't available yet, fall back to just showing own WOs
+      if (crewIds.size > 0) {
+        allWos = allWos.filter(wo =>
+          wo.assignedTo?.id === state.employee.id ||
+          crewIds.has(wo.assignedTo?.id)
+        );
+      } else {
+        allWos = allWos.filter(wo => wo.assignedTo?.id === state.employee.id);
+      }
+    }
     const woContent = document.getElementById('wo-list-content');
     if (!woContent) return;
 
