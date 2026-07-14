@@ -2,7 +2,59 @@
 // Admin/foreman create and assign; tech marks complete; admin marks billed.
 // All dialogs use overlay-scoped querySelector to avoid ID conflicts.
 
-// ---- Shared helper: populate a people select from dashboard ----
+// ---- Shared helper: location autocomplete (same pattern as day-edit screen) ----
+// Fetches locations fresh, renders a text input with live suggestions,
+// calls onSelect(locationId, locationName) when user picks one.
+async function setupWoLocationAutocomplete(overlay, inputId, suggestionsId, onSelect, initialName) {
+  // Fetch locations fresh so we always have the full list
+  let locations = [];
+  try {
+    const data = await api(withCompany('/job-locations'));
+    locations = data.locations || [];
+  } catch (err) {
+    console.error('Could not load locations:', err);
+  }
+
+  const input = overlay.querySelector(`#${inputId}`);
+  const suggestionsEl = overlay.querySelector(`#${suggestionsId}`);
+  if (!input || !suggestionsEl) return;
+
+  if (initialName) input.value = initialName;
+
+  input.addEventListener('input', () => {
+    onSelect(null, null); // clear selection when user types
+    const query = input.value.trim().toLowerCase();
+    suggestionsEl.innerHTML = '';
+    if (!query) return;
+
+    const matches = locations
+      .filter(l => l.name.toLowerCase().includes(query))
+      .slice(0, 6);
+
+    if (matches.length === 0) return;
+
+    suggestionsEl.innerHTML = `
+      <div style="border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-top:4px;background:#fff;">
+        ${matches.map(m => `
+          <div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--line);font-size:13px;" data-loc-id="${m.id}" data-loc-name="${escapeHtml(m.name)}">
+            ${escapeHtml(m.name)}
+          </div>`).join('')}
+        <div style="padding:10px 12px;cursor:pointer;font-size:13px;color:var(--amber-dark);font-weight:600;" data-loc-id="__new__" data-loc-name="${escapeHtml(input.value.trim())}">
+          + Add "${escapeHtml(input.value.trim())}" as new location
+        </div>
+      </div>`;
+
+    suggestionsEl.querySelectorAll('[data-loc-id]').forEach(el => {
+      el.addEventListener('click', () => {
+        const locId = el.getAttribute('data-loc-id');
+        const locName = el.getAttribute('data-loc-name');
+        input.value = locName;
+        suggestionsEl.innerHTML = '';
+        onSelect(locId === '__new__' ? null : locId, locName);
+      });
+    });
+  });
+}
 async function populatePeopleSelect(selectEl, selectedId) {
   if (!selectEl) return;
   try {
@@ -16,23 +68,6 @@ async function populatePeopleSelect(selectEl, selectedId) {
     });
   } catch (err) {
     console.error('Could not load people for dropdown:', err);
-  }
-}
-
-// ---- Shared helper: populate a locations select ----
-async function populateLocationsSelect(selectEl, selectedId) {
-  if (!selectEl) return;
-  try {
-    const data = await api(withCompany('/job-locations'));
-    (data.locations || []).forEach(l => {
-      const opt = document.createElement('option');
-      opt.value = l.id;
-      opt.textContent = l.name;
-      if (selectedId && l.id === selectedId) opt.selected = true;
-      selectEl.appendChild(opt);
-    });
-  } catch (err) {
-    console.error('Could not load locations for dropdown:', err);
   }
 }
 
@@ -116,6 +151,20 @@ function showWorkOrderDetail(workOrderId, wos) {
       ${wo.currentPhoto?.url
         ? `<img src="${wo.currentPhoto.url}" style="width:100%;border-radius:8px;display:block;margin-bottom:16px;" />`
         : `<div style="background:rgba(255,255,255,0.08);border-radius:8px;padding:20px;text-align:center;color:rgba(255,255,255,0.4);margin-bottom:16px;font-size:13px;">No photo attached yet</div>`}
+
+      ${wo.allPhotos && wo.allPhotos.filter(p => !p.isCurrent).length > 0 ? `
+        <details style="margin-bottom:16px;">
+          <summary style="color:rgba(255,255,255,0.6);font-size:12px;cursor:pointer;padding:6px 0;">
+            Previous versions (${wo.allPhotos.filter(p => !p.isCurrent).length})
+          </summary>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+            ${wo.allPhotos.filter(p => !p.isCurrent).map(p => `
+              <div>
+                <img src="${p.url}" style="width:100%;border-radius:6px;display:block;" />
+                <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:3px;text-align:center;">${p.uploadedAt ? p.uploadedAt.slice(0,10) : ''}</div>
+              </div>`).join('')}
+          </div>
+        </details>` : ''}
 
       <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:12px;margin-bottom:16px;">
         ${wo.jobLocation ? `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="color:rgba(255,255,255,0.5);">Location</span><span style="font-weight:700;">${escapeHtml(wo.jobLocation.name)}</span></div>` : ''}
@@ -236,8 +285,9 @@ function showCreateWorkOrderDialog() {
         <input id="wo-scheduled-date" type="date" />
       </div>
       <div class="field">
-        <label for="wo-location">Job location (optional)</label>
-        <select id="wo-location"><option value="">No location yet</option></select>
+        <label for="wo-location-input">Job location (optional)</label>
+        <input id="wo-location-input" type="text" placeholder="Start typing a job site..." autocomplete="off" />
+        <div id="wo-location-suggestions"></div>
       </div>
       <div class="field">
         <label for="wo-assigned">Assign to (optional)</label>
@@ -261,9 +311,15 @@ function showCreateWorkOrderDialog() {
   overlay.querySelector('#wo-create-close').addEventListener('click', close);
   overlay.querySelector('#wo-create-cancel').addEventListener('click', close);
 
-  // Populate dropdowns
-  populateLocationsSelect(overlay.querySelector('#wo-location'));
+  // Populate people dropdown
   populatePeopleSelect(overlay.querySelector('#wo-assigned'));
+
+  // Location autocomplete
+  let selectedLocationId = null, selectedLocationName = null;
+  setupWoLocationAutocomplete(overlay, 'wo-location-input', 'wo-location-suggestions', (id, name) => {
+    selectedLocationId = id;
+    selectedLocationName = name;
+  });
 
   let imageBase64 = null, imageMimeType = null;
   overlay.querySelector('#wo-photo-input').addEventListener('change', (e) => {
@@ -283,12 +339,25 @@ function showCreateWorkOrderDialog() {
     const woNumber = overlay.querySelector('#wo-number').value.trim();
     const dateReceived = overlay.querySelector('#wo-date-received').value;
     const scheduledDate = overlay.querySelector('#wo-scheduled-date').value || null;
-    const jobLocationId = overlay.querySelector('#wo-location').value || null;
     const assignedToId = overlay.querySelector('#wo-assigned').value || null;
     const details = overlay.querySelector('#wo-details').value.trim() || null;
     const errorEl = overlay.querySelector('#wo-create-error');
     const btn = overlay.querySelector('#wo-create-save');
     errorEl.innerHTML = '';
+
+    // Resolve job location — create new if typed but not selected from list
+    let jobLocationId = selectedLocationId;
+    const typedLocationName = overlay.querySelector('#wo-location-input').value.trim();
+    if (typedLocationName && !jobLocationId) {
+      // Create the new location on the fly
+      try {
+        const locResult = await api('/job-locations', { method: 'POST', body: JSON.stringify({ companyId: state.activeCompanyId, name: typedLocationName, confirmNew: true }) });
+        jobLocationId = locResult.location?.id || null;
+      } catch (err) {
+        errorEl.innerHTML = errorHtml('Could not create job location: ' + err.message);
+        return;
+      }
+    }
 
     if (!woNumber) { errorEl.innerHTML = errorHtml('Work order number is required.'); return; }
     if (!dateReceived) { errorEl.innerHTML = errorHtml('Date received is required.'); return; }
@@ -460,8 +529,9 @@ function showEditWorkOrderDialog(wo) {
         <input id="edit-wo-scheduled" type="date" value="${wo.scheduledDate || ''}" />
       </div>
       <div class="field">
-        <label for="edit-wo-location">Job location</label>
-        <select id="edit-wo-location"><option value="">No location</option></select>
+        <label for="edit-wo-location-input">Job location</label>
+        <input id="edit-wo-location-input" type="text" placeholder="Start typing a job site..." autocomplete="off" />
+        <div id="edit-wo-location-suggestions"></div>
       </div>
       <div class="field">
         <label for="edit-wo-assigned">Assigned to</label>
@@ -489,8 +559,12 @@ function showEditWorkOrderDialog(wo) {
   overlay.querySelector('#edit-wo-close').addEventListener('click', close);
   overlay.querySelector('#edit-wo-cancel').addEventListener('click', close);
 
-  // Populate dropdowns with current values pre-selected
-  populateLocationsSelect(overlay.querySelector('#edit-wo-location'), wo.jobLocation?.id);
+  // Location autocomplete pre-filled with current location
+  let editLocationId = wo.jobLocation?.id || null;
+  setupWoLocationAutocomplete(overlay, 'edit-wo-location-input', 'edit-wo-location-suggestions', (id, name) => {
+    editLocationId = id;
+  }, wo.jobLocation?.name || '');
+
   populatePeopleSelect(overlay.querySelector('#edit-wo-assigned'), wo.assignedTo?.id);
 
   let newImageBase64 = null, newMimeType = null;
@@ -504,11 +578,23 @@ function showEditWorkOrderDialog(wo) {
 
   overlay.querySelector('#edit-wo-save').addEventListener('click', async () => {
     const scheduledDate = overlay.querySelector('#edit-wo-scheduled').value || null;
-    const jobLocationId = overlay.querySelector('#edit-wo-location').value || null;
     const assignedToId = overlay.querySelector('#edit-wo-assigned').value || null;
     const details = overlay.querySelector('#edit-wo-details').value.trim() || null;
     const errorEl = overlay.querySelector('#edit-wo-error');
     const btn = overlay.querySelector('#edit-wo-save');
+
+    // Resolve job location — create new if typed but not selected from list
+    let jobLocationId = editLocationId;
+    const typedLocationName = overlay.querySelector('#edit-wo-location-input').value.trim();
+    if (typedLocationName && !jobLocationId) {
+      try {
+        const locResult = await api('/job-locations', { method: 'POST', body: JSON.stringify({ companyId: state.activeCompanyId, name: typedLocationName, confirmNew: true }) });
+        jobLocationId = locResult.location?.id || null;
+      } catch (err) {
+        errorEl.innerHTML = errorHtml('Could not create job location: ' + err.message);
+        return;
+      }
+    }
     btn.disabled = true;
     btn.textContent = 'Saving...';
     try {
