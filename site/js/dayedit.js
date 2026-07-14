@@ -705,7 +705,7 @@ async function renderDayWorkOrders(date) {
     const data = await api(withCompany('/work-orders?status=open'));
     const myWos = (data.workOrders || []).filter(wo =>
       wo.scheduledDate === date &&
-      (wo.assignedTo?.id === state.employee.id || currentCompanyRole() !== 'employee')
+      wo.assignedTo?.id === state.employee.id
     );
 
     if (myWos.length === 0) { el.innerHTML = ''; return; }
