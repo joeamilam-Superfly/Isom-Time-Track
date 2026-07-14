@@ -10,6 +10,7 @@ async function renderTeam(opts) {
     <main>
       ${roleTabsHtml('team')}
       <div class="screen-title">Team</div>
+      <div class="week-label" style="margin-bottom:12px;">${formatWeekRange(state.currentWeekOf || sundayOf(todayStr()))}</div>
       <div class="screen-sub">${isAdmin ? 'Everyone at this company.' : 'Your assigned crew.'}</div>
       ${isAdmin ? `
         <div class="btn-row" style="margin-bottom:16px;">
