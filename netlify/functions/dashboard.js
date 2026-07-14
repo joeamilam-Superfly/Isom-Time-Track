@@ -48,7 +48,7 @@ exports.handler = async (event) => {
     if (myRole.role === 'admin') {
       const { data: rawRoleRow, error: roleRowError } = await supabase
         .from('employee_company_roles')
-        .select('role, foreman_id, employment_start_date, active')
+        .select('role, foreman_id, employment_start_date, bill_rate, active')
         .eq('employee_id', targetId)
         .eq('company_id', companyId)
         .maybeSingle();
@@ -119,6 +119,7 @@ exports.handler = async (event) => {
           roleActive: targetRoleRow.active,
           active: target.active,
           employmentStartDate: targetRoleRow.employment_start_date || null,
+          billRate: targetRoleRow.bill_rate ? Number(targetRoleRow.bill_rate) : null,
         },
         currentWeekTotals: {
           regularHoursWorked: round2(totals.regular),
@@ -165,7 +166,9 @@ exports.handler = async (event) => {
   }
 
   if (myRole.role === 'foreman') {
-    roleQuery = roleQuery.eq('foreman_id', auth.employeeId);
+    // Fetch crew (assigned to this foreman) AND the foreman themselves
+    // so they appear as a schedulable row in the grid alongside their team.
+    roleQuery = roleQuery.or(`foreman_id.eq.${auth.employeeId},employee_id.eq.${auth.employeeId}`);
   }
 
   const { data: roleRows, error: roleListError } = await roleQuery;
