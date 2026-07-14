@@ -35,7 +35,9 @@ exports.handler = async (event) => {
       query = query.eq('assigned_to_id', auth.employeeId);
     }
 
-    if (params.status) query = query.eq('status', params.status);
+    if (params.status === 'open') query = query.in('status', ['open', 'submitted']);
+    else if (params.status) query = query.eq('status', params.status);
+    if (params.includeCompleted === 'true') query = query.in('status', ['open', 'submitted', 'ready_to_bill', 'billed']);
     if (params.locationId) query = query.eq('job_location_id', params.locationId);
     if (params.woNumber) query = query.eq('wo_number', params.woNumber);
 
@@ -201,8 +203,9 @@ exports.handler = async (event) => {
     // ---- update details (scheduled date, location, assignment, notes) ----
     if (action === 'update_details') {
       if (myRole.role === 'employee') return forbidden('Only foremen and admins can update work orders');
-      const { jobLocationId, scheduledDate: newScheduledDate, assignedToId: newAssignedToId, details: newDetails } = body;
+      const { jobLocationId, scheduledDate: newScheduledDate, assignedToId: newAssignedToId, details: newDetails, woNumber: newWoNumber } = body;
       const updateFields = { updated_at: new Date().toISOString() };
+      if (newWoNumber !== undefined && newWoNumber.trim()) updateFields.wo_number = newWoNumber.trim();
       if (newScheduledDate !== undefined) updateFields.scheduled_date = newScheduledDate || null;
       if (jobLocationId !== undefined) updateFields.job_location_id = jobLocationId || null;
       if (newAssignedToId !== undefined) updateFields.assigned_to_id = newAssignedToId || null;
@@ -269,24 +272,32 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: JSON.stringify({ ok: true }) };
     }
 
-    // ---- mark complete (tech action - immediately sets ready_to_bill) ----
-    if (action === 'complete') {
-      // The assigned tech can complete, or a foreman/admin
-      if (myRole.role === 'employee' && wo.assigned_to_id !== auth.employeeId) {
-        return forbidden('You can only complete work orders assigned to you');
-      }
+    // ---- submit for foreman approval (employee action) ----
+    if (action === 'submit') {
       if (wo.status !== 'open') {
+        return { statusCode: 409, body: JSON.stringify({ error: 'This work order has already been submitted or completed' }) };
+      }
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from('work_orders')
+        .update({ status: 'submitted', updated_at: now })
+        .eq('id', workOrderId);
+      if (error) return errorResponse(error);
+      return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+    }
+
+    // ---- mark complete — foreman/admin only ----
+    if (action === 'complete') {
+      if (myRole.role === 'employee') {
+        return forbidden('Only a foreman or admin can mark a work order as complete. Contact your foreman to approve it.');
+      }
+      if (wo.status !== 'open' && wo.status !== 'submitted') {
         return { statusCode: 409, body: JSON.stringify({ error: 'This work order is already completed' }) };
       }
       const now = new Date().toISOString();
       const { error } = await supabase
         .from('work_orders')
-        .update({
-          status: 'ready_to_bill',
-          completed_at: now,
-          completed_by_id: auth.employeeId,
-          updated_at: now,
-        })
+        .update({ status: 'ready_to_bill', completed_at: now, completed_by_id: auth.employeeId, updated_at: now })
         .eq('id', workOrderId);
       if (error) return errorResponse(error);
       return { statusCode: 200, body: JSON.stringify({ ok: true, readyToBill: true }) };
