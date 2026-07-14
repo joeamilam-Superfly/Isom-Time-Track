@@ -153,18 +153,20 @@ function showWorkOrderDetail(workOrderId, wos) {
         : `<div style="background:rgba(255,255,255,0.08);border-radius:8px;padding:20px;text-align:center;color:rgba(255,255,255,0.4);margin-bottom:16px;font-size:13px;">No photo attached yet</div>`}
 
       ${wo.allPhotos && wo.allPhotos.filter(p => !p.isCurrent).length > 0 ? `
-        <details style="margin-bottom:16px;">
-          <summary style="color:rgba(255,255,255,0.6);font-size:12px;cursor:pointer;padding:6px 0;">
-            Previous versions (${wo.allPhotos.filter(p => !p.isCurrent).length})
-          </summary>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
-            ${wo.allPhotos.filter(p => !p.isCurrent).map(p => `
-              <div>
-                <img src="${p.url}" style="width:100%;border-radius:6px;display:block;" />
-                <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:3px;text-align:center;">${p.uploadedAt ? p.uploadedAt.slice(0,10) : ''}</div>
-              </div>`).join('')}
+        <div style="margin-bottom:16px;">
+          <button id="wo-history-toggle" style="background:rgba(255,255,255,0.1);border:none;color:rgba(255,255,255,0.7);font-size:12px;padding:8px 12px;border-radius:6px;cursor:pointer;width:100%;text-align:left;">
+            &#9654; Previous versions (${wo.allPhotos.filter(p => !p.isCurrent).length}) — tap to view
+          </button>
+          <div id="wo-history-photos" style="display:none;margin-top:8px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              ${wo.allPhotos.filter(p => !p.isCurrent).map((p, i) => `
+                <div>
+                  <img src="${p.url}" data-history-img="${i}" style="width:100%;border-radius:6px;display:block;cursor:pointer;" />
+                  <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:3px;text-align:center;">${p.uploadedAt ? p.uploadedAt.slice(0,10) : ''}</div>
+                </div>`).join('')}
+            </div>
           </div>
-        </details>` : ''}
+        </div>` : ''}
 
       <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:12px;margin-bottom:16px;">
         ${wo.jobLocation ? `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="color:rgba(255,255,255,0.5);">Location</span><span style="font-weight:700;">${escapeHtml(wo.jobLocation.name)}</span></div>` : ''}
@@ -204,6 +206,31 @@ function showWorkOrderDetail(workOrderId, wos) {
     </div>
   `;
   document.body.appendChild(overlay);
+
+  // Wire history photo toggle
+  const historyToggle = overlay.querySelector('#wo-history-toggle');
+  if (historyToggle) {
+    const historyPhotos = overlay.querySelector('#wo-history-photos');
+    const histCount = (wo.allPhotos || []).filter(p => !p.isCurrent).length;
+    historyToggle.addEventListener('click', () => {
+      const showing = historyPhotos.style.display === 'block';
+      historyPhotos.style.display = showing ? 'none' : 'block';
+      historyToggle.innerHTML = showing
+        ? `&#9654; Previous versions (${histCount}) — tap to view`
+        : `&#9660; Previous versions (${histCount}) — tap to hide`;
+    });
+
+    // Tap any thumbnail to view fullscreen
+    overlay.querySelectorAll('[data-history-img]').forEach(img => {
+      img.addEventListener('click', () => {
+        const lightbox = document.createElement('div');
+        lightbox.style.cssText = 'position:fixed;inset:0;background:#000;z-index:300;display:flex;align-items:center;justify-content:center;cursor:pointer;';
+        lightbox.innerHTML = `<img src="${img.src}" style="max-width:100%;max-height:100%;object-fit:contain;" />`;
+        lightbox.addEventListener('click', () => document.body.removeChild(lightbox));
+        document.body.appendChild(lightbox);
+      });
+    });
+  }
 
   // All handlers scoped to overlay — safe on mobile with multiple overlays
   const close = () => { if (document.body.contains(overlay)) document.body.removeChild(overlay); };
