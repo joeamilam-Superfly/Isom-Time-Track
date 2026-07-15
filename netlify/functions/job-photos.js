@@ -27,6 +27,7 @@ exports.handler = async (event) => {
 
     if (params.jobLocationId) query = query.eq('job_location_id', params.jobLocationId);
     if (params.receiptsOnly === 'true') query = query.eq('is_receipt', true);
+    if (params.photosOnly === 'true') query = query.eq('is_receipt', false);
     if (params.startDate) query = query.gte('taken_at', params.startDate + 'T00:00:00Z');
     if (params.endDate) query = query.lte('taken_at', params.endDate + 'T23:59:59Z');
 
@@ -39,6 +40,7 @@ exports.handler = async (event) => {
         .createSignedUrl(p.storage_path, 60 * 30); // 30 minutes
       return {
         id: p.id,
+        jobLocationName: p.job_locations ? p.job_locations.name : null,
         employeeName: p.employees ? `${p.employees.first_name} ${p.employees.last_name}` : null,
         jobLocationId: p.job_location_id,
         jobLocationName: p.job_locations?.name || null,
