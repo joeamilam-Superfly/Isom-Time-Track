@@ -14,12 +14,13 @@ async function renderPhotoLog(opts) {
       ${roleTabsHtml('photolog')}
       <div class="screen-title">Job Site Photos</div>
       <div class="field">
-        <label for="photolog-filter">Filter by job location</label>
+        <label for="photolog-filter">Filter by job location or work order</label>
         <select id="photolog-filter">
-          <option value="">All locations</option>
+          <option value="">— Select to filter —</option>
         </select>
+        <div class="screen-sub">Only locations and work orders with photos are shown.</div>
       </div>
-      <div id="photolog-grid">${loadingHtml()}</div>
+      <div id="photolog-grid"></div>
     </main>
     <div class="bottom-bar">
       <button class="btn btn-amber" id="add-photo-btn">+ Add photo</button>
@@ -28,29 +29,60 @@ async function renderPhotoLog(opts) {
 
   attachTopbarHandlers();
   attachRoleTabHandlers();
-
   document.getElementById('add-photo-btn').addEventListener('click', showAddPhotoDialog);
 
   try {
-    const locationsData = await api(withCompany('/job-locations'));
-    state.jobLocations = locationsData.locations || [];
+    // Fetch only locations/WOs that actually have photos
+    const filterData = await api(withCompany('/job-photos?distinctLocations=true'));
     const filterEl = document.getElementById('photolog-filter');
-    filterEl.innerHTML = `
-      <option value="">All locations</option>
-      <option value="none">⚠ No location assigned</option>
-      ${state.jobLocations.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('')}
-    `;
-    filterEl.addEventListener('change', () => loadPhotoLog(filterEl.value));
-  } catch (err) {
-    console.error('Could not load job locations for filter:', err);
-  }
 
-  // Auto-load all photos on init (receipts filtered out — they appear in Billing Report and Admin)
-  loadPhotoLog('');
+    const opts = [
+      `<option value="">— Select to filter —</option>`,
+      `<option value="all">All photos</option>`,
+    ];
+
+    if ((filterData.locations || []).length > 0) {
+      opts.push(`<optgroup label="Job Locations">`);
+      filterData.locations.forEach(l => {
+        opts.push(`<option value="loc:${l.id}">${escapeHtml(l.name)}</option>`);
+      });
+      opts.push(`</optgroup>`);
+    }
+
+    if ((filterData.workOrders || []).length > 0) {
+      opts.push(`<optgroup label="Work Orders">`);
+      filterData.workOrders.forEach(wo => {
+        opts.push(`<option value="wo:${wo.id}">${escapeHtml(wo.name)}</option>`);
+      });
+      opts.push(`</optgroup>`);
+    }
+
+    if (filterData.hasUnassigned) {
+      opts.push(`<option value="none">⚠ No location assigned</option>`);
+    }
+
+    filterEl.innerHTML = opts.join('');
+    state.jobLocations = filterData.locations || [];
+
+    filterEl.addEventListener('change', () => {
+      const val = filterEl.value;
+      if (!val) {
+        document.getElementById('photolog-grid').innerHTML = '';
+        return;
+      }
+      if (val === 'all') { loadPhotoLog(''); return; }
+      if (val === 'none') { loadPhotoLog('none'); return; }
+      if (val.startsWith('loc:')) { loadPhotoLog(val.slice(4)); return; }
+      if (val.startsWith('wo:')) { loadWoPhotos(val.slice(3)); return; }
+    });
+  } catch (err) {
+    console.error('Could not load photo filter:', err);
+  }
 }
 
 async function loadPhotoLog(jobLocationId) {
   const gridEl = document.getElementById('photolog-grid');
+  if (!gridEl) return;
   gridEl.innerHTML = loadingHtml();
   try {
     const base = jobLocationId
@@ -58,6 +90,20 @@ async function loadPhotoLog(jobLocationId) {
       : withCompany('/job-photos?photosOnly=true');
     const data = await api(base);
     renderPhotoGrid(data.photos || []);
+  } catch (err) {
+    gridEl.innerHTML = errorHtml(err.message);
+  }
+}
+
+async function loadWoPhotos(workOrderId) {
+  const gridEl = document.getElementById('photolog-grid');
+  if (!gridEl) return;
+  gridEl.innerHTML = loadingHtml();
+  try {
+    // Fetch all photos and filter to this WO's photos
+    const data = await api(withCompany('/job-photos?photosOnly=true'));
+    const woPhotos = (data.photos || []).filter(p => p.workOrderId === workOrderId);
+    renderPhotoGrid(woPhotos);
   } catch (err) {
     gridEl.innerHTML = errorHtml(err.message);
   }
@@ -144,7 +190,9 @@ async function deletePhoto(photoId) {
   try {
     await api(`/job-photos?photoId=${photoId}&companyId=${state.activeCompanyId}`, { method: 'DELETE' });
     const filterEl = document.getElementById('photolog-filter');
-    loadPhotoLog(filterEl ? filterEl.value : '');
+    const val = filterEl ? filterEl.value : '';
+    if (val.startsWith('wo:')) loadWoPhotos(val.slice(3));
+    else loadPhotoLog(val.startsWith('loc:') ? val.slice(4) : val === 'all' ? '' : val);
   } catch (err) {
     alert(err.message);
   }
@@ -221,7 +269,9 @@ function showEditPhotoDialog(photo) {
       });
       close();
       const filterEl = document.getElementById('photolog-filter');
-      loadPhotoLog(filterEl ? filterEl.value : '');
+      const val = filterEl ? filterEl.value : '';
+      if (val.startsWith('wo:')) loadWoPhotos(val.slice(3));
+      else loadPhotoLog(val.startsWith('loc:') ? val.slice(4) : val === 'all' ? '' : val);
     } catch (err) {
       errorEl.innerHTML = errorHtml(err.message);
       btn.disabled = false;
