@@ -17,6 +17,22 @@ async function renderAdmin(opts) {
       </div>
       <div id="admin-summary">${loadingHtml()}</div>
 
+      <div class="screen-sub" style="font-weight:600; color:var(--ink); margin: 24px 0 8px;">Receipts</div>
+      <div id="receipts-admin-section">
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+          <select id="receipts-location-filter" style="flex:2;min-width:140px;">
+            <option value="">All locations</option>
+          </select>
+          <select id="receipts-period-filter" style="flex:1;min-width:100px;">
+            <option value="week">This week</option>
+            <option value="month">This month</option>
+            <option value="all">All time</option>
+          </select>
+          <button class="btn btn-sm btn-ghost" id="load-receipts-btn">View</button>
+        </div>
+        <div id="receipts-admin-grid"></div>
+      </div>
+
       <div class="screen-sub" style="font-weight:600; color:var(--ink); margin: 24px 0 8px;">Job locations</div>
       <button class="btn btn-ghost btn-sm" id="find-duplicates-btn" style="margin-bottom:14px;">Find possible duplicates</button>
       <div id="duplicates-section"></div>
@@ -48,6 +64,20 @@ async function renderAdmin(opts) {
   document.getElementById('export-btn').addEventListener('click', () => exportWeekCsv(weekOf, summaries));
   document.getElementById('export-pdf-btn').addEventListener('click', () => downloadReceiptPdf(weekOf));
   document.getElementById('find-duplicates-btn').addEventListener('click', loadDuplicateGroups);
+
+  // Populate receipts location filter and wire load button
+  api(withCompany('/job-locations')).then(d => {
+    const sel = document.getElementById('receipts-location-filter');
+    if (!sel) return;
+    (d.locations || []).forEach(l => {
+      const opt = document.createElement('option');
+      opt.value = l.id;
+      opt.textContent = l.name;
+      sel.appendChild(opt);
+    });
+  }).catch(() => {});
+
+  document.getElementById('load-receipts-btn').addEventListener('click', loadAdminReceipts);
 
   loadJobLocationsAdmin();
 }
@@ -615,5 +645,56 @@ async function downloadReceiptPdf(weekOf) {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Receipt PDF';
+  }
+}
+
+async function loadAdminReceipts() {
+  const gridEl = document.getElementById('receipts-admin-grid');
+  const locId = document.getElementById('receipts-location-filter')?.value || '';
+  const period = document.getElementById('receipts-period-filter')?.value || 'week';
+  if (!gridEl) return;
+  gridEl.innerHTML = loadingHtml();
+
+  try {
+    let url = withCompany('/job-photos?receiptsOnly=true');
+    if (locId) url += `&jobLocationId=${locId}`;
+    const data = await api(url);
+    let receipts = data.photos || [];
+
+    // Filter by period client-side
+    const now = new Date();
+    if (period === 'week') {
+      const weekStart = sundayOf(todayStr());
+      receipts = receipts.filter(r => r.takenAt && r.takenAt.slice(0,10) >= weekStart);
+    } else if (period === 'month') {
+      const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+      receipts = receipts.filter(r => r.takenAt && r.takenAt.slice(0,10) >= monthStart);
+    }
+
+    if (receipts.length === 0) {
+      gridEl.innerHTML = `<div class="empty-state"><div class="icon">🧾</div>No receipts found for this selection.</div>`;
+      return;
+    }
+
+    const total = receipts.reduce((sum, r) => sum + (r.receiptAmount || 0), 0);
+
+    gridEl.innerHTML = `
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:#16a34a;">
+        ${receipts.length} receipt${receipts.length !== 1 ? 's' : ''} &middot; Total: $${total.toFixed(2)}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        ${receipts.map(r => `
+          <div style="border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--paper);">
+            ${r.url ? `<a href="${r.url}" target="_blank"><img src="${r.url}" style="width:100%;display:block;max-height:140px;object-fit:cover;" /></a>` : '<div style="height:60px;background:var(--paper-dim);display:flex;align-items:center;justify-content:center;font-size:20px;">🧾</div>'}
+            <div style="padding:6px 8px;">
+              <div style="font-size:13px;font-weight:700;color:#16a34a;">${r.receiptAmount ? '$'+Number(r.receiptAmount).toFixed(2) : 'No amount'}</div>
+              <div style="font-size:11px;color:var(--ink-soft);">${escapeHtml(r.jobLocationName || 'No location')}</div>
+              <div style="font-size:11px;color:var(--ink-soft);">${escapeHtml(r.employeeName || '')} &middot; ${r.takenAt ? r.takenAt.slice(0,10) : ''}</div>
+              ${r.description ? `<div style="font-size:11px;color:var(--ink);margin-top:2px;">${escapeHtml(r.description)}</div>` : ''}
+            </div>
+          </div>`).join('')}
+      </div>`;
+  } catch (err) {
+    gridEl.innerHTML = errorHtml(err.message);
   }
 }
