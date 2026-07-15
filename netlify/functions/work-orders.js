@@ -19,7 +19,7 @@ exports.handler = async (event) => {
     let query = supabase
       .from('work_orders')
       .select(`
-        id, wo_number, date_received, scheduled_date, status, details,
+        id, wo_number, date_received, scheduled_date, status, details, invoice_number,
         completed_at, created_at, updated_at,
         job_locations(id, name),
         employees!work_orders_assigned_to_id_fkey(id, first_name, last_name),
@@ -40,6 +40,10 @@ exports.handler = async (event) => {
     if (params.includeCompleted === 'true') query = query.in('status', ['open', 'submitted', 'ready_to_bill', 'billed']);
     if (params.locationId) query = query.eq('job_location_id', params.locationId);
     if (params.woNumber) query = query.eq('wo_number', params.woNumber);
+    // Search: match WO number OR invoice number (partial, case-insensitive)
+    if (params.search) {
+      query = query.or(`wo_number.ilike.%${params.search}%,invoice_number.ilike.%${params.search}%`);
+    }
 
     const { data, error } = await query;
     if (error) return errorResponse(error);
@@ -107,6 +111,7 @@ exports.handler = async (event) => {
       jobLocation: w.job_locations ? { id: w.job_locations.id, name: w.job_locations.name } : null,
       assignedTo: w.employees ? { id: w.employees.id, name: `${w.employees.first_name} ${w.employees.last_name}` } : null,
       completedBy: w.completed_by ? { id: w.completed_by.id, name: `${w.completed_by.first_name} ${w.completed_by.last_name}` } : null,
+      invoiceNumber: w.invoice_number || null,
       currentPhoto: (photoMap[w.id] || []).find(p => p.isCurrent) || null,
       allPhotos: photoMap[w.id] || [],
       timeEntries: woTimeMap[w.id] || [],
@@ -303,12 +308,16 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: JSON.stringify({ ok: true, readyToBill: true }) };
     }
 
-    // ---- mark billed (admin only) ----
+    // ---- mark billed (admin only) — requires invoice number ----
     if (action === 'bill') {
       if (myRole.role !== 'admin') return forbidden('Only admins can mark a work order as billed');
+      const { invoiceNumber } = body;
+      if (!invoiceNumber || !invoiceNumber.trim()) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'Invoice number is required to mark a work order as billed' }) };
+      }
       const { error } = await supabase
         .from('work_orders')
-        .update({ status: 'billed', updated_at: new Date().toISOString() })
+        .update({ status: 'billed', invoice_number: invoiceNumber.trim(), updated_at: new Date().toISOString() })
         .eq('id', workOrderId);
       if (error) return errorResponse(error);
       return { statusCode: 200, body: JSON.stringify({ ok: true }) };
