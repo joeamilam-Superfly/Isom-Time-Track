@@ -260,6 +260,10 @@ function renderBillingReportOutput(data, container) {
                   </div>`).join('')}
               </div>
             </details>` : ''}
+          ${g.locationId && g.locationId !== 'unassigned' ? `
+            <div id="receipts-${g.locationId}" style="margin-top:8px;">
+              <button class="btn btn-sm btn-ghost" style="font-size:11px;width:100%;" data-load-receipts="${g.locationId}">View receipts for this location</button>
+            </div>` : ''}
         </div>`).join('');
     }
   } else {
@@ -314,6 +318,40 @@ function renderBillingReportOutput(data, container) {
 
   document.getElementById('report-csv-btn').addEventListener('click', () => downloadReportCsv(data));
   document.getElementById('report-pdf-btn').addEventListener('click', () => downloadReportPdf(data));
+
+  // Wire receipt view buttons for each location
+  container.querySelectorAll('[data-load-receipts]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const locId = btn.getAttribute('data-load-receipts');
+      const receiptEl = document.getElementById(`receipts-${locId}`);
+      if (!receiptEl) return;
+      btn.disabled = true;
+      btn.textContent = 'Loading...';
+      try {
+        const rData = await api(withCompany(`/job-photos?jobLocationId=${locId}&receiptsOnly=true`));
+        const receipts = rData.photos || [];
+        if (receipts.length === 0) {
+          receiptEl.innerHTML = `<div style="font-size:12px;color:var(--ink-soft);padding:6px 0;">No receipts for this location in this period.</div>`;
+          return;
+        }
+        receiptEl.innerHTML = `
+          <div style="font-size:12px;font-weight:600;margin:8px 0 6px;">Receipts (${receipts.length})</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            ${receipts.map(r => `
+              <div style="border:1px solid var(--line);border-radius:6px;overflow:hidden;">
+                ${r.url ? `<img src="${r.url}" style="width:100%;display:block;max-height:120px;object-fit:cover;" />` : ''}
+                <div style="padding:4px 6px;">
+                  <div style="font-size:11px;font-weight:600;color:#16a34a;">${r.receiptAmount ? '$' + Number(r.receiptAmount).toFixed(2) : 'No amount'}</div>
+                  <div style="font-size:10px;color:var(--ink-soft);">${escapeHtml(r.employeeName || '')} &middot; ${r.takenAt ? r.takenAt.slice(0,10) : ''}</div>
+                  ${r.description ? `<div style="font-size:10px;color:var(--ink-soft);">${escapeHtml(r.description)}</div>` : ''}
+                </div>
+              </div>`).join('')}
+          </div>`;
+      } catch (err) {
+        receiptEl.innerHTML = errorHtml(err.message);
+      }
+    });
+  });
 }
 
 function downloadReportCsv(data) {
