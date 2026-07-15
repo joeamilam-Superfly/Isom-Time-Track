@@ -190,11 +190,15 @@ function topbarHtml() {
   const initials = emp ? `${emp.firstName[0]}${emp.lastName[0]}` : '';
   const company = activeCompany();
   const showSwitcher = state.companies.length > 1;
+  const isSouthPointe = company && company.name.toLowerCase().includes('south pointe');
+  const logoSrc = isSouthPointe ? '/images/southpointe-logo.png' : '/images/logo.png';
+  const logoAlt = isSouthPointe ? 'South Pointe' : 'Isom Electric';
+  const logoHeight = isSouthPointe ? '26px' : '32px';
 
   return `
     <div class="topbar">
       <div class="mark">
-        <img src="/images/logo.png" alt="Isom Electric" style="height:32px; width:auto; display:block;" />
+        <img src="${logoSrc}" alt="${logoAlt}" style="height:${logoHeight}; width:auto; display:block;" />
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
         <button class="user-chip" id="help-btn" style="border:none;" aria-label="Help">&#128172;</button>
