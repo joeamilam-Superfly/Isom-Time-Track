@@ -70,9 +70,9 @@ function renderPhotoGrid(photos) {
     return;
   }
 
-  // Split photos into assigned and unassigned groups
-  const unassigned = photos.filter(p => !p.jobLocationId);
-  const assigned = photos.filter(p => p.jobLocationId);
+  // Split photos into assigned and unassigned groups (WO photos are never unassigned)
+  const unassigned = photos.filter(p => !p.jobLocationId && p.source !== 'work_order');
+  const assigned = photos.filter(p => p.jobLocationId || p.source === 'work_order');
 
   const canManage = currentCompanyRole() === 'admin' || currentCompanyRole() === 'foreman';
 
@@ -81,12 +81,14 @@ function renderPhotoGrid(photos) {
     const dateLabel = takenDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const timeLabel = takenDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     const canDelete = currentCompanyRole() === 'admin' || isOwnPhoto(p);
+    const isWoPhoto = p.source === 'work_order';
     return `
       <div class="day-stub" style="padding:0; overflow:hidden;">
-        ${p.url ? `<img src="${p.url}" alt="Job site photo" style="width:100%; display:block; max-height:280px; object-fit:cover;" />` : `<div class="empty-state" style="padding:30px;">Image unavailable</div>`}
+        ${isWoPhoto ? `<div style="background:#16a34a;color:#fff;font-size:11px;font-weight:700;padding:4px 10px;letter-spacing:0.05em;">WORK ORDER PHOTO</div>` : ''}
+        ${p.url ? `<img src="${p.url}" alt="${isWoPhoto ? 'Work order photo' : 'Job site photo'}" style="width:100%; display:block; max-height:280px; object-fit:cover;" />` : `<div class="empty-state" style="padding:30px;">Image unavailable</div>`}
         <div class="day-stub-body" style="padding:12px 14px;">
           <div class="day-stub-top">
-            <div class="day-stub-date" style="${!p.jobLocationId ? 'color:#e53e3e;' : ''}">${p.jobLocationName ? escapeHtml(p.jobLocationName) : '⚠ No location'}</div>
+            <div class="day-stub-date" style="${!p.jobLocationId && !isWoPhoto ? 'color:#e53e3e;' : ''}">${p.jobLocationName ? escapeHtml(p.jobLocationName) : '⚠ No location'}</div>
             <div class="day-stub-hours" style="font-size:13px;">${dateLabel}</div>
           </div>
           <div class="day-stub-meta">
@@ -94,10 +96,11 @@ function renderPhotoGrid(photos) {
             <span>${timeLabel}</span>
           </div>
           ${p.description ? `<div class="screen-sub" style="margin-top:6px;margin-bottom:0;">${escapeHtml(p.description)}</div>` : ''}
+          ${isWoPhoto ? `<div style="font-size:11px;color:var(--ink-soft);margin-top:4px;">Manage this photo from the work order</div>` : `
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
             ${canManage ? `<button class="btn btn-sm btn-ghost" data-edit-photo="${p.id}" style="font-size:12px;">Edit</button>` : ''}
             ${canDelete ? `<button class="btn btn-sm btn-ghost" data-delete-photo="${p.id}" style="font-size:12px;">Delete</button>` : ''}
-          </div>
+          </div>`}
         </div>
       </div>`;
   }
