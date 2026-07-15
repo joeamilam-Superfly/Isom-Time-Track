@@ -223,6 +223,35 @@ exports.handler = async (event) => {
     const myRole = await resolveCompanyRole(auth.employeeId, companyId, auth.superAdmin);
     if (!myRole) return forbidden('You do not have access to this company');
 
+    // ---- check_conflicts runs before WO fetch — doesn't need a valid workOrderId ----
+    if (action === 'check_conflicts') {
+      const { employeeId: checkEmpId, scheduledDate: checkDate } = body;
+      if (!checkEmpId || !checkDate) return { statusCode: 200, body: JSON.stringify({ conflicts: [] }) };
+      const conflicts = [];
+      const { data: schedEntries } = await supabase
+        .from('schedule_entries')
+        .select('scheduled_date, job_locations(name)')
+        .eq('company_id', companyId)
+        .eq('employee_id', checkEmpId)
+        .eq('scheduled_date', checkDate);
+      for (const entry of schedEntries || []) {
+        const locName = entry.job_locations?.name?.toUpperCase();
+        if (locName === 'OFF') conflicts.push({ type: 'scheduled_off', message: 'This employee is scheduled OFF on this date' });
+        else if (locName) conflicts.push({ type: 'scheduled_elsewhere', message: `This employee is already scheduled at ${entry.job_locations.name} on this date` });
+      }
+      const { data: leaveRequests } = await supabase
+        .from('pto_requests')
+        .select('start_date, end_date, status')
+        .eq('employee_id', checkEmpId)
+        .in('status', ['pending', 'approved'])
+        .lte('start_date', checkDate)
+        .gte('end_date', checkDate);
+      for (const req of leaveRequests || []) {
+        conflicts.push({ type: 'leave_request', message: `This employee has a ${req.status === 'pending' ? 'pending' : 'approved'} leave request covering this date` });
+      }
+      return { statusCode: 200, body: JSON.stringify({ conflicts }) };
+    }
+
     const { data: wo, error: fetchError } = await supabase
       .from('work_orders')
       .select('*')
@@ -304,6 +333,7 @@ exports.handler = async (event) => {
 
       return { statusCode: 200, body: JSON.stringify({ ok: true }) };
     }
+
 
     // ---- reopen (foreman/admin only, only from ready_to_bill — not after billing) ----
     if (action === 'reopen') {
