@@ -52,10 +52,48 @@ exports.handler = async (event) => {
         receiptAmount: p.receipt_amount ? Number(p.receipt_amount) : null,
         takenAt: p.taken_at,
         url: signError ? null : signed.signedUrl,
+        source: 'job_site',
       };
     }));
 
-    return { statusCode: 200, body: JSON.stringify({ photos: withUrls }) };
+    // Also fetch work order photos — only when not filtering by job location
+    // (WO photos are associated with WOs not job locations)
+    let woPhotos = [];
+    if (!params.jobLocationId && params.receiptsOnly !== 'true') {
+      const { data: wopData } = await supabase
+        .from('work_order_photos')
+        .select('id, work_order_id, storage_path, uploaded_at, is_current, uploaded_by_id, employees!work_order_photos_uploaded_by_id_fkey(first_name, last_name), work_orders!work_order_photos_work_order_id_fkey(wo_number, job_location_id, job_locations(name))')
+        .eq('company_id', companyId)
+        .order('uploaded_at', { ascending: false });
+
+      woPhotos = await Promise.all((wopData || []).map(async (p) => {
+        const { data: signed, error: signError } = await supabase.storage
+          .from(PHOTO_BUCKET)
+          .createSignedUrl(p.storage_path, 60 * 30);
+        const wo = p.work_orders;
+        return {
+          id: p.id,
+          jobLocationId: wo?.job_location_id || null,
+          jobLocationName: `WO# ${wo?.wo_number || '?'}${wo?.job_locations?.name ? ' — ' + wo.job_locations.name : ''}`,
+          employeeName: p.employees ? `${p.employees.first_name} ${p.employees.last_name}` : null,
+          description: `Work order photo — WO# ${wo?.wo_number || '?'}`,
+          isReceipt: false,
+          receiptAmount: null,
+          takenAt: p.uploaded_at,
+          url: signError ? null : signed.signedUrl,
+          source: 'work_order',
+          isCurrent: p.is_current,
+          workOrderId: p.work_order_id,
+        };
+      }));
+    }
+
+    // Merge and sort by date descending
+    const allPhotos = [...withUrls, ...woPhotos].sort((a, b) =>
+      new Date(b.takenAt) - new Date(a.takenAt)
+    );
+
+    return { statusCode: 200, body: JSON.stringify({ photos: allPhotos }) };
   }
 
   // ---------------- POST: upload a new photo ----------------
