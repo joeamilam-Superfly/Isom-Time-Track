@@ -232,7 +232,7 @@ function showAddPhotoDialog() {
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;overflow-y:auto;';
   overlay.innerHTML = `
     <div style="background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;max-height:85vh;overflow-y:auto;">
-      <div style="font-weight:700;font-size:17px;margin-bottom:14px;">Add a photo</div>
+      <div style="font-weight:700;font-size:17px;margin-bottom:14px;">Add photos</div>
 
       <div class="field" style="margin-bottom:10px;">
         <label style="font-weight:600; font-size:14px;">Photo type</label>
@@ -249,12 +249,11 @@ function showAddPhotoDialog() {
       </div>
 
       <div class="field">
-        <label for="photo-file-input">Photo</label>
-        <input id="photo-file-input" type="file" accept="image/*" />
+        <label for="photo-file-input">Photos (select one or more)</label>
+        <input id="photo-file-input" type="file" accept="image/*" multiple />
+        <div class="screen-sub">Tap to choose multiple photos at once from your library.</div>
       </div>
-      <div id="photo-preview" style="display:none; margin-bottom:14px;">
-        <img id="photo-preview-img" style="width:100%; border-radius:8px; max-height:240px; object-fit:cover;" />
-      </div>
+      <div id="photo-preview-grid" style="display:none; margin-bottom:14px;"></div>
 
       <div class="field">
         <label for="photo-location-select">Job location</label>
@@ -265,7 +264,7 @@ function showAddPhotoDialog() {
       </div>
 
       <div class="field" id="photo-description-field">
-        <label for="photo-description" id="photo-description-label">What's happening in this photo?</label>
+        <label for="photo-description" id="photo-description-label">What's happening in these photos?</label>
         <textarea id="photo-description" rows="3" placeholder="Describe the work completed"></textarea>
       </div>
 
@@ -275,7 +274,6 @@ function showAddPhotoDialog() {
       </div>
 
       <div class="screen-sub" id="photo-timestamp-note"></div>
-
       <div id="photo-dialog-error"></div>
       <div class="btn-row" style="margin-top:8px;">
         <button class="btn btn-ghost" id="photo-dialog-cancel">Cancel</button>
@@ -285,14 +283,13 @@ function showAddPhotoDialog() {
   `;
   document.body.appendChild(overlay);
 
-  // Toggle receipt-specific fields when radio changes
   document.querySelectorAll('input[name="photo-type"]').forEach(radio => {
     radio.addEventListener('change', () => {
       const isReceipt = document.getElementById('photo-type-receipt').checked;
       document.getElementById('receipt-amount-field').style.display = isReceipt ? 'block' : 'none';
       document.getElementById('photo-description-label').textContent = isReceipt
         ? 'What is this receipt for?'
-        : 'What\'s happening in this photo?';
+        : 'What\'s happening in these photos?';
       document.getElementById('photo-description').placeholder = isReceipt
         ? 'e.g. Lumber, electrical supplies, fuel'
         : 'Describe the work completed';
@@ -304,32 +301,65 @@ function showAddPhotoDialog() {
 
   document.getElementById('photo-dialog-cancel').addEventListener('click', () => document.body.removeChild(overlay));
 
-  let compressedImage = null; // { base64, mimeType }
+  let compressedImages = []; // array of { base64, mimeType }
 
   document.getElementById('photo-file-input').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
 
     const saveBtn = document.getElementById('photo-dialog-save');
     const errorEl = document.getElementById('photo-dialog-error');
+    const previewGrid = document.getElementById('photo-preview-grid');
     errorEl.innerHTML = '';
     saveBtn.disabled = true;
-    saveBtn.textContent = 'Processing photo...';
+    saveBtn.textContent = `Processing ${files.length} photo${files.length > 1 ? 's' : ''}...`;
+    compressedImages = [];
 
     try {
-      compressedImage = await compressImageFile(file);
-      document.getElementById('photo-preview').style.display = 'block';
-      document.getElementById('photo-preview-img').src = `data:${compressedImage.mimeType};base64,${compressedImage.base64}`;
+      for (const file of files) {
+        const compressed = await compressImageFile(file);
+        compressedImages.push(compressed);
+      }
+
+      // Show thumbnail grid of selected photos
+      previewGrid.style.display = 'block';
+      previewGrid.innerHTML = `
+        <div style="font-size:12px;color:var(--ink-soft);margin-bottom:6px;">${compressedImages.length} photo${compressedImages.length > 1 ? 's' : ''} selected</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+          ${compressedImages.map((img, i) => `
+            <div style="position:relative;">
+              <img src="data:${img.mimeType};base64,${img.base64}" style="width:100%;height:80px;object-fit:cover;border-radius:6px;display:block;" />
+              <button data-remove-preview="${i}" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.6);border:none;color:#fff;border-radius:50%;width:20px;height:20px;font-size:12px;cursor:pointer;line-height:1;padding:0;">&times;</button>
+            </div>`).join('')}
+        </div>`;
+
+      // Allow removing individual photos from the selection
+      previewGrid.querySelectorAll('[data-remove-preview]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-remove-preview'));
+          compressedImages.splice(idx, 1);
+          if (compressedImages.length === 0) {
+            previewGrid.style.display = 'none';
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Upload';
+          } else {
+            // Re-render preview
+            btn.closest('.field, div[style*="grid"]')?.closest('div')?.remove();
+            document.getElementById('photo-file-input').dispatchEvent(new Event('rerender'));
+          }
+        });
+      });
+
       saveBtn.disabled = false;
-      saveBtn.textContent = 'Upload';
+      saveBtn.textContent = `Upload ${compressedImages.length} photo${compressedImages.length > 1 ? 's' : ''}`;
     } catch (err) {
-      errorEl.innerHTML = errorHtml(`Could not process that photo: ${err.message}`);
+      errorEl.innerHTML = errorHtml(`Could not process photos: ${err.message}`);
       saveBtn.textContent = 'Upload';
     }
   });
 
   document.getElementById('photo-dialog-save').addEventListener('click', async () => {
-    if (!compressedImage) return;
+    if (!compressedImages.length) return;
 
     const jobLocationId = document.getElementById('photo-location-select').value || null;
     const description = document.getElementById('photo-description').value.trim();
@@ -347,27 +377,30 @@ function showAddPhotoDialog() {
     }
 
     saveBtn.disabled = true;
-    saveBtn.textContent = 'Uploading...';
 
     try {
-      await api('/job-photos', {
-        method: 'POST',
-        body: JSON.stringify({
-          companyId: state.activeCompanyId,
-          jobLocationId,
-          description,
-          imageBase64: compressedImage.base64,
-          mimeType: compressedImage.mimeType,
-          isReceipt,
-          receiptAmount,
-        }),
-      });
+      // Upload all photos sequentially
+      for (let i = 0; i < compressedImages.length; i++) {
+        saveBtn.textContent = `Uploading ${i + 1} of ${compressedImages.length}...`;
+        await api('/job-photos', {
+          method: 'POST',
+          body: JSON.stringify({
+            companyId: state.activeCompanyId,
+            jobLocationId,
+            description,
+            imageBase64: compressedImages[i].base64,
+            mimeType: compressedImages[i].mimeType,
+            isReceipt,
+            receiptAmount,
+          }),
+        });
+      }
       document.body.removeChild(overlay);
-      loadPhotoLog('');
+      loadPhotoLog(document.getElementById('photolog-filter')?.value || '');
     } catch (err) {
       errorEl.innerHTML = errorHtml(err.message);
       saveBtn.disabled = false;
-      saveBtn.textContent = 'Upload';
+      saveBtn.textContent = `Upload ${compressedImages.length} photo${compressedImages.length > 1 ? 's' : ''}`;
     }
   });
 }
