@@ -19,6 +19,12 @@
 [functions."scheduled-reminders"]
   schedule = "0 * * * *"
 
+[functions."scheduled-lunch"]
+  schedule = "0 * * * *"
+
+[functions."scheduled-pto-accrual"]
+  schedule = "0 * * * *"
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
