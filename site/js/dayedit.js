@@ -702,38 +702,75 @@ async function renderDayWorkOrders(date) {
   if (!el) return;
 
   try {
-    const data = await api(withCompany('/work-orders?status=open'));
-    const myWos = (data.workOrders || []).filter(wo =>
+    // Fetch open WOs assigned to this employee for today
+    const [openData, closedData] = await Promise.all([
+      api(withCompany('/work-orders?status=open')),
+      api(withCompany('/work-orders?includeCompleted=true')),
+    ]);
+
+    const myOpenWos = (openData.workOrders || []).filter(wo =>
       wo.scheduledDate === date &&
-      wo.assignedTo?.id === state.employee.id
+      (wo.assignedTo?.id === state.employee.id ||
+       (wo.crew || []).some(c => c.id === state.employee.id))
     );
 
-    if (myWos.length === 0) { el.innerHTML = ''; return; }
+    // Closed WOs where this employee is primary or crew — shown for additional time logging
+    const myClosedWos = (closedData.workOrders || []).filter(wo =>
+      wo.status !== 'open' &&
+      (wo.assignedTo?.id === state.employee.id ||
+       (wo.crew || []).some(c => c.id === state.employee.id))
+    );
 
-    el.innerHTML = `
-      <div style="margin-bottom:14px;">
-        <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-soft); margin-bottom:6px;">Work orders for today</div>
-        ${myWos.map(wo => `
-          <div class="day-stub" style="margin-bottom:8px; cursor:pointer;" data-wo-day-view="${wo.id}">
-            <div class="day-stub-perf" style="background:#16a34a;"></div>
-            <div class="day-stub-body">
-              <div class="day-stub-top">
-                <div class="day-stub-date">WO# ${escapeHtml(wo.woNumber)}</div>
-                <div style="font-size:12px; color:var(--amber-dark); font-weight:600;">Open</div>
+    if (myOpenWos.length === 0 && myClosedWos.length === 0) { el.innerHTML = ''; return; }
+
+    let html = '';
+
+    if (myOpenWos.length > 0) {
+      html += `
+        <div style="margin-bottom:14px;">
+          <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-soft); margin-bottom:6px;">Work orders for today</div>
+          ${myOpenWos.map(wo => `
+            <div class="day-stub" style="margin-bottom:8px; cursor:pointer;" data-wo-day-view="${wo.id}">
+              <div class="day-stub-perf" style="background:#16a34a;"></div>
+              <div class="day-stub-body">
+                <div class="day-stub-top">
+                  <div class="day-stub-date">WO# ${escapeHtml(wo.woNumber)}</div>
+                  <div style="font-size:12px; color:#16a34a; font-weight:600;">Open</div>
+                </div>
+                ${wo.jobLocation ? `<div class="day-stub-meta"><span>${escapeHtml(wo.jobLocation.name)}</span></div>` : ''}
+                ${wo.details ? `<div style="font-size:11px; color:var(--ink); margin-top:4px; white-space:pre-line; background:var(--paper-dim); border-radius:4px; padding:6px 8px;">${escapeHtml(wo.details)}</div>` : ''}
+                <div style="font-size:12px; color:var(--ink-soft); margin-top:4px;">Tap to view work order &rarr;</div>
               </div>
-              ${wo.jobLocation ? `<div class="day-stub-meta"><span>${escapeHtml(wo.jobLocation.name)}</span></div>` : ''}
-              ${wo.details ? `<div style="font-size:11px; color:var(--ink); margin-top:4px; white-space:pre-line; background:var(--paper-dim); border-radius:4px; padding:6px 8px;">${escapeHtml(wo.details)}</div>` : ''}
-              <div style="font-size:12px; color:var(--ink-soft); margin-top:4px;">Tap to view work order &rarr;</div>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    `;
+            </div>`).join('')}
+        </div>`;
+    }
 
+    if (myClosedWos.length > 0) {
+      html += `
+        <div style="margin-bottom:14px;">
+          <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-soft); margin-bottom:6px;">Closed work orders — tap to log time</div>
+          ${myClosedWos.map(wo => `
+            <div class="day-stub" style="margin-bottom:8px; cursor:pointer; opacity:0.8;" data-wo-day-view="${wo.id}">
+              <div class="day-stub-perf" style="background:var(--ink-soft);"></div>
+              <div class="day-stub-body">
+                <div class="day-stub-top">
+                  <div class="day-stub-date">WO# ${escapeHtml(wo.woNumber)}</div>
+                  <div style="font-size:12px; color:var(--ink-soft); font-weight:600;">${wo.status === 'ready_to_bill' ? 'Ready to bill' : 'Billed'}</div>
+                </div>
+                ${wo.jobLocation ? `<div class="day-stub-meta"><span>${escapeHtml(wo.jobLocation.name)}</span></div>` : ''}
+                <div style="font-size:12px; color:var(--ink-soft); margin-top:4px;">Tap to log additional time &rarr;</div>
+              </div>
+            </div>`).join('')}
+        </div>`;
+    }
+
+    el.innerHTML = html;
+
+    const allWos = [...myOpenWos, ...myClosedWos];
     el.querySelectorAll('[data-wo-day-view]').forEach(card => {
       card.addEventListener('click', () => {
         const woId = card.getAttribute('data-wo-day-view');
-        showWorkOrderDetail(woId, myWos);
+        showWorkOrderDetail(woId, allWos);
       });
     });
   } catch (err) {
