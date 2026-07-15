@@ -597,6 +597,10 @@ async function loadWorkOrdersSection() {
     woContent.querySelectorAll('[data-wo-complete]').forEach(btn => {
       btn.addEventListener('click', () => completeWorkOrder(btn.getAttribute('data-wo-complete'), woContent));
     });
+    woContent.querySelectorAll('[data-wo-bill]').forEach(btn => {
+      const wo = allWos.find(w => w.id === btn.getAttribute('data-wo-bill'));
+      if (wo) btn.addEventListener('click', () => showBillWorkOrderDialog(wo));
+    });
     woContent.querySelectorAll('[data-wo-edit]').forEach(btn => {
       const wo = allWos.find(w => w.id === btn.getAttribute('data-wo-edit'));
       if (wo) btn.addEventListener('click', () => showEditWorkOrderDialog(wo));
