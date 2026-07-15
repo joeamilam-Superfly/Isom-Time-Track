@@ -369,8 +369,15 @@ function showCreateWorkOrderDialog() {
         <div id="wo-location-suggestions"></div>
       </div>
       <div class="field">
-        <label for="wo-assigned">Assign to (optional)</label>
+        <label for="wo-assigned">Primary assignee (optional)</label>
         <select id="wo-assigned"><option value="">Unassigned</option></select>
+      </div>
+      <div class="field">
+        <label>Crew members (optional)</label>
+        <div class="screen-sub" style="margin-bottom:8px;">Tap to select everyone working this job.</div>
+        <div id="wo-crew-checklist" style="border:1px solid var(--line);border-radius:8px;overflow:hidden;max-height:220px;overflow-y:auto;">
+          <div style="padding:12px;color:var(--ink-soft);font-size:12px;">Loading employees...</div>
+        </div>
       </div>
       <div class="field">
         <label for="wo-details">Work order details (optional)</label>
@@ -390,8 +397,58 @@ function showCreateWorkOrderDialog() {
   overlay.querySelector('#wo-create-close').addEventListener('click', close);
   overlay.querySelector('#wo-create-cancel').addEventListener('click', close);
 
-  // Populate people dropdown
-  populatePeopleSelect(overlay.querySelector('#wo-assigned'));
+  // Populate primary assignee dropdown and crew checklist together
+  let allPeople = [];
+  let createCrewIds = new Set();
+
+  function renderCreateCrewChecklist() {
+    const checklistEl = overlay.querySelector('#wo-crew-checklist');
+    if (!checklistEl) return;
+    const primaryId = overlay.querySelector('#wo-assigned')?.value;
+    const people = allPeople.filter(p => p.id !== primaryId);
+    if (people.length === 0) {
+      checklistEl.innerHTML = `<div style="padding:12px;color:var(--ink-soft);font-size:12px;">No other employees to assign.</div>`;
+      return;
+    }
+    checklistEl.innerHTML = people.map(p => {
+      const checked = createCrewIds.has(p.id);
+      return `
+        <div data-crew-toggle="${p.id}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer;background:${checked ? 'var(--paper-dim)' : 'transparent'};">
+          <div style="width:20px;height:20px;border-radius:4px;border:2px solid ${checked ? 'var(--amber)' : 'var(--line)'};background:${checked ? 'var(--amber)' : 'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            ${checked ? '<svg width="12" height="12" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="#1A1208" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}
+          </div>
+          <div>
+            <div style="font-size:13px;font-weight:${checked ? '600' : '400'};">${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)}</div>
+            <div style="font-size:11px;color:var(--ink-soft);">${p.role}</div>
+          </div>
+        </div>`;
+    }).join('');
+    checklistEl.querySelectorAll('[data-crew-toggle]').forEach(row => {
+      row.addEventListener('click', () => {
+        const id = row.getAttribute('data-crew-toggle');
+        if (createCrewIds.has(id)) createCrewIds.delete(id);
+        else createCrewIds.add(id);
+        renderCreateCrewChecklist();
+      });
+    });
+  }
+
+  api(withCompany('/dashboard')).then(data => {
+    allPeople = data.people || [];
+    const sel = overlay.querySelector('#wo-assigned');
+    allPeople.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = `${p.firstName} ${p.lastName} (${p.role})`;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', () => {
+      const primaryId = sel.value;
+      if (primaryId) createCrewIds.delete(primaryId);
+      renderCreateCrewChecklist();
+    });
+    renderCreateCrewChecklist();
+  }).catch(() => {});
 
   // Location autocomplete
   let selectedLocationId = null, selectedLocationName = null;
@@ -465,7 +522,11 @@ function showCreateWorkOrderDialog() {
       }
 
       btn.textContent = 'Creating...';
-      await api('/work-orders', { method: 'POST', body: JSON.stringify({ companyId: state.activeCompanyId, woNumber, dateReceived, scheduledDate, jobLocationId, assignedToId, details, imageBase64, mimeType: imageMimeType }) });
+      const created = await api('/work-orders', { method: 'POST', body: JSON.stringify({ companyId: state.activeCompanyId, woNumber, dateReceived, scheduledDate, jobLocationId, assignedToId, details, imageBase64, mimeType: imageMimeType }) });
+      // Save crew assignments if any were selected
+      if (createCrewIds.size > 0 && created.workOrder?.id) {
+        await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: created.workOrder.id, action: 'update_crew', employeeIds: [...createCrewIds] }) }).catch(() => {});
+      }
       close();
       render('approvals', { subView: 'schedule' });
     } catch (err) {
