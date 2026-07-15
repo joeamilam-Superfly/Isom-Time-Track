@@ -94,6 +94,10 @@ async function renderMyWorkOrders(container) {
     container.querySelectorAll('[data-wo-complete]').forEach(btn => {
       btn.addEventListener('click', () => completeWorkOrder(btn.getAttribute('data-wo-complete'), container));
     });
+    container.querySelectorAll('[data-wo-bill]').forEach(btn => {
+      const wo = wos.find(w => w.id === btn.getAttribute('data-wo-bill'));
+      if (wo) btn.addEventListener('click', () => showBillWorkOrderDialog(wo));
+    });
     container.querySelectorAll('[data-wo-edit]').forEach(btn => {
       const wo = wos.find(w => w.id === btn.getAttribute('data-wo-edit'));
       if (wo) btn.addEventListener('click', () => showEditWorkOrderDialog(wo));
@@ -108,6 +112,7 @@ function workOrderCardHtml(wo, myRole) {
   const statusColor = { open: 'var(--amber-dark)', submitted: '#7c3aed', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)' }[wo.status];
   const canComplete = (wo.status === 'open' || wo.status === 'submitted') && (myRole === 'admin' || myRole === 'foreman');
   const canSubmit = wo.status === 'open' && myRole === 'employee' && wo.assignedTo?.id === state.employee.id;
+  const canBillCard = myRole === 'admin' && wo.status === 'ready_to_bill';
   const canManage = myRole === 'admin' || myRole === 'foreman';
   const pendingReview = wo.status === 'submitted' && (myRole === 'admin' || myRole === 'foreman');
 
@@ -126,10 +131,12 @@ function workOrderCardHtml(wo, myRole) {
         </div>
         ${wo.details ? `<div style="margin-top:6px; font-size:12px; color:var(--ink); white-space:pre-line; background:var(--paper-dim); border-radius:6px; padding:8px 10px;">${escapeHtml(wo.details)}</div>` : ''}
         ${pendingReview ? `<div style="background:#7c3aed;color:#fff;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:600;margin-bottom:6px;">⏳ Submitted by tech — awaiting your approval</div>` : ''}
+        ${canBillCard ? `<div style="background:#16a34a;color:#fff;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:600;margin-bottom:6px;">💰 Ready to bill — enter invoice number to archive</div>` : ''}
         <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
           <button class="btn btn-sm btn-ghost" data-wo-view="${wo.id}">View WO</button>
           ${canSubmit ? `<button class="btn btn-sm btn-primary" data-wo-submit="${wo.id}">Submit for approval</button>` : ''}
           ${canComplete ? `<button class="btn btn-sm btn-primary" data-wo-complete="${wo.id}">${wo.status === 'submitted' ? 'Approve &amp; complete' : 'Mark complete'}</button>` : ''}
+          ${canBillCard ? `<button class="btn btn-sm btn-primary" data-wo-bill="${wo.id}" style="background:#16a34a;">Mark as billed</button>` : ''}
           ${canManage ? `<button class="btn btn-sm btn-ghost" data-wo-edit="${wo.id}">Edit</button>` : ''}
         </div>
       </div>
