@@ -37,6 +37,7 @@ async function renderPhotoLog(opts) {
     const filterEl = document.getElementById('photolog-filter');
     filterEl.innerHTML = `
       <option value="">All locations</option>
+      <option value="none">⚠ No location assigned</option>
       ${state.jobLocations.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('')}
     `;
     filterEl.addEventListener('change', () => loadPhotoLog(filterEl.value));
@@ -69,31 +70,61 @@ function renderPhotoGrid(photos) {
     return;
   }
 
-  gridEl.innerHTML = photos.map(p => {
+  // Split photos into assigned and unassigned groups
+  const unassigned = photos.filter(p => !p.jobLocationId);
+  const assigned = photos.filter(p => p.jobLocationId);
+
+  const canManage = currentCompanyRole() === 'admin' || currentCompanyRole() === 'foreman';
+
+  function photoCardHtml(p) {
     const takenDate = new Date(p.takenAt);
     const dateLabel = takenDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const timeLabel = takenDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    const canDelete = p.employeeName && (currentCompanyRole() === 'admin' || isOwnPhoto(p));
-
+    const canDelete = currentCompanyRole() === 'admin' || isOwnPhoto(p);
     return `
       <div class="day-stub" style="padding:0; overflow:hidden;">
-        ${p.isReceipt ? `<div style="background:var(--amber); color:#fff; font-size:11px; font-weight:700; padding:4px 10px; letter-spacing:0.05em;">RECEIPT${p.receiptAmount ? ' &mdash; $' + Number(p.receiptAmount).toFixed(2) : ''}</div>` : ''}
-        ${p.url ? `<img src="${p.url}" alt="${p.isReceipt ? 'Receipt' : 'Job site photo'}" style="width:100%; display:block; max-height:280px; object-fit:cover;" />` : `<div class="empty-state" style="padding:30px;">Image unavailable</div>`}
+        ${p.url ? `<img src="${p.url}" alt="Job site photo" style="width:100%; display:block; max-height:280px; object-fit:cover;" />` : `<div class="empty-state" style="padding:30px;">Image unavailable</div>`}
         <div class="day-stub-body" style="padding:12px 14px;">
           <div class="day-stub-top">
-            <div class="day-stub-date">${p.jobLocationName ? escapeHtml(p.jobLocationName) : 'No location'}</div>
+            <div class="day-stub-date" style="${!p.jobLocationId ? 'color:#e53e3e;' : ''}">${p.jobLocationName ? escapeHtml(p.jobLocationName) : '⚠ No location'}</div>
             <div class="day-stub-hours" style="font-size:13px;">${dateLabel}</div>
           </div>
           <div class="day-stub-meta">
             ${p.employeeName ? `<span>${escapeHtml(p.employeeName)}</span>` : ''}
             <span>${timeLabel}</span>
           </div>
-          ${p.description ? `<div class="screen-sub" style="margin-top:6px; margin-bottom:0;">${escapeHtml(p.description)}</div>` : ''}
-          ${canDelete ? `<button class="btn btn-sm btn-ghost" data-delete-photo="${p.id}" style="margin-top:10px;">Delete</button>` : ''}
+          ${p.description ? `<div class="screen-sub" style="margin-top:6px;margin-bottom:0;">${escapeHtml(p.description)}</div>` : ''}
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+            ${canManage ? `<button class="btn btn-sm btn-ghost" data-edit-photo="${p.id}" style="font-size:12px;">Edit</button>` : ''}
+            ${canDelete ? `<button class="btn btn-sm btn-ghost" data-delete-photo="${p.id}" style="font-size:12px;">Delete</button>` : ''}
+          </div>
         </div>
+      </div>`;
+  }
+
+  let html = '';
+
+  if (unassigned.length > 0) {
+    html += `
+      <div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:10px 14px;margin-bottom:12px;">
+        <div style="font-weight:700;font-size:13px;color:#92400e;">⚠ ${unassigned.length} photo${unassigned.length > 1 ? 's' : ''} with no job location — tap Edit to assign</div>
       </div>
-    `;
-  }).join('');
+      <div style="display:flex;flex-direction:column;gap:16px;margin-bottom:24px;">
+        ${unassigned.map(photoCardHtml).join('')}
+      </div>`;
+  }
+
+  if (assigned.length > 0) {
+    html += `<div style="display:flex;flex-direction:column;gap:16px;">${assigned.map(photoCardHtml).join('')}</div>`;
+  }
+
+  gridEl.innerHTML = html;
+
+  gridEl.querySelectorAll('[data-edit-photo]').forEach(btn => {
+    const photoId = btn.getAttribute('data-edit-photo');
+    const photo = photos.find(p => p.id === photoId);
+    if (photo) btn.addEventListener('click', () => showEditPhotoDialog(photo));
+  });
 
   gridEl.querySelectorAll('[data-delete-photo]').forEach(btn => {
     btn.addEventListener('click', () => deletePhoto(btn.getAttribute('data-delete-photo')));
@@ -114,6 +145,86 @@ async function deletePhoto(photoId) {
   } catch (err) {
     alert(err.message);
   }
+}
+
+function showEditPhotoDialog(photo) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;overflow-y:auto;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;max-height:85vh;overflow-y:auto;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="font-weight:700;font-size:17px;">Edit photo</div>
+        <button id="edit-photo-close" style="background:none;border:none;font-size:24px;cursor:pointer;">&times;</button>
+      </div>
+      ${photo.url ? `<img src="${photo.url}" style="width:100%;border-radius:8px;margin-bottom:14px;max-height:200px;object-fit:cover;" />` : ''}
+      <div class="field">
+        <label for="edit-photo-location">Job location</label>
+        <select id="edit-photo-location">
+          <option value="">No location</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="edit-photo-description">Description</label>
+        <input id="edit-photo-description" type="text" value="${photo.description ? escapeHtml(photo.description) : ''}" placeholder="Describe what this photo shows..." />
+      </div>
+      <div id="edit-photo-error"></div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-ghost" id="edit-photo-cancel">Cancel</button>
+        <button class="btn btn-primary" id="edit-photo-save">Save changes</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => { if (document.body.contains(overlay)) document.body.removeChild(overlay); };
+  overlay.querySelector('#edit-photo-close').addEventListener('click', close);
+  overlay.querySelector('#edit-photo-cancel').addEventListener('click', close);
+
+  // Populate locations dropdown
+  const locSel = overlay.querySelector('#edit-photo-location');
+  (state.jobLocations || []).forEach(l => {
+    const opt = document.createElement('option');
+    opt.value = l.id;
+    opt.textContent = l.name;
+    if (l.id === photo.jobLocationId) opt.selected = true;
+    locSel.appendChild(opt);
+  });
+
+  // If locations not loaded yet, fetch them
+  if (!state.jobLocations || state.jobLocations.length === 0) {
+    api(withCompany('/job-locations')).then(d => {
+      state.jobLocations = d.locations || [];
+      state.jobLocations.forEach(l => {
+        const opt = document.createElement('option');
+        opt.value = l.id;
+        opt.textContent = l.name;
+        if (l.id === photo.jobLocationId) opt.selected = true;
+        locSel.appendChild(opt);
+      });
+    }).catch(() => {});
+  }
+
+  overlay.querySelector('#edit-photo-save').addEventListener('click', async () => {
+    const jobLocationId = overlay.querySelector('#edit-photo-location').value || null;
+    const description = overlay.querySelector('#edit-photo-description').value.trim() || null;
+    const errorEl = overlay.querySelector('#edit-photo-error');
+    const btn = overlay.querySelector('#edit-photo-save');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    try {
+      await api('/job-photos', {
+        method: 'PATCH',
+        body: JSON.stringify({ companyId: state.activeCompanyId, photoId: photo.id, jobLocationId, description }),
+      });
+      close();
+      const filterEl = document.getElementById('photolog-filter');
+      loadPhotoLog(filterEl ? filterEl.value : '');
+    } catch (err) {
+      errorEl.innerHTML = errorHtml(err.message);
+      btn.disabled = false;
+      btn.textContent = 'Save changes';
+    }
+  });
 }
 
 function showAddPhotoDialog() {
