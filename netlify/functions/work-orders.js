@@ -28,11 +28,20 @@ exports.handler = async (event) => {
       .eq('company_id', companyId)
       .order('created_at', { ascending: false });
 
-    // Employees only see WOs assigned to them.
-    // Foremen and admins see all company WOs so the scheduling grid
-    // correctly shows work orders assigned to any team member.
+    // Employees see WOs assigned to them directly OR where they are crew members
     if (myRole.role === 'employee') {
-      query = query.eq('assigned_to_id', auth.employeeId);
+      // Get WO IDs where this employee is a crew member
+      const { data: crewWos } = await supabase
+        .from('work_order_assignments')
+        .select('work_order_id')
+        .eq('employee_id', auth.employeeId)
+        .eq('company_id', companyId);
+      const crewWoIds = (crewWos || []).map(r => r.work_order_id);
+      if (crewWoIds.length > 0) {
+        query = query.or(`assigned_to_id.eq.${auth.employeeId},id.in.(${crewWoIds.join(',')})`);
+      } else {
+        query = query.eq('assigned_to_id', auth.employeeId);
+      }
     }
 
     if (params.status === 'open') query = query.in('status', ['open', 'submitted']);
@@ -99,6 +108,24 @@ exports.handler = async (event) => {
       }
     }
 
+    // Fetch crew assignments for each WO
+    let assignmentsMap = {};
+    if (woIds.length > 0) {
+      const { data: assignments } = await supabase
+        .from('work_order_assignments')
+        .select('work_order_id, employee_id, employees!work_order_assignments_employee_id_fkey(id, first_name, last_name)')
+        .in('work_order_id', woIds);
+      for (const a of assignments || []) {
+        if (!assignmentsMap[a.work_order_id]) assignmentsMap[a.work_order_id] = [];
+        if (a.employees) {
+          assignmentsMap[a.work_order_id].push({
+            id: a.employees.id,
+            name: `${a.employees.first_name} ${a.employees.last_name}`,
+          });
+        }
+      }
+    }
+
     const workOrders = (data || []).map(w => ({
       id: w.id,
       woNumber: w.wo_number,
@@ -110,6 +137,7 @@ exports.handler = async (event) => {
       createdAt: w.created_at,
       jobLocation: w.job_locations ? { id: w.job_locations.id, name: w.job_locations.name } : null,
       assignedTo: w.employees ? { id: w.employees.id, name: `${w.employees.first_name} ${w.employees.last_name}` } : null,
+      crew: assignmentsMap[w.id] || [],
       completedBy: w.completed_by ? { id: w.completed_by.id, name: `${w.completed_by.first_name} ${w.completed_by.last_name}` } : null,
       invoiceNumber: w.invoice_number || null,
       currentPhoto: (photoMap[w.id] || []).find(p => p.isCurrent) || null,
@@ -274,6 +302,43 @@ exports.handler = async (event) => {
         .update({ updated_at: new Date().toISOString() })
         .eq('id', workOrderId);
 
+      return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+    }
+
+    // ---- reopen (foreman/admin only, only from ready_to_bill — not after billing) ----
+    if (action === 'reopen') {
+      if (myRole.role === 'employee') return forbidden('Only foremen and admins can reopen work orders');
+      const { data: current } = await supabase.from('work_orders').select('status, invoice_number').eq('id', workOrderId).single();
+      if (!current) return { statusCode: 404, body: JSON.stringify({ error: 'Work order not found' }) };
+      if (current.status === 'billed') return { statusCode: 409, body: JSON.stringify({ error: 'Cannot reopen a billed work order — it has already been invoiced' }) };
+      if (current.status !== 'ready_to_bill' && current.status !== 'submitted') {
+        return { statusCode: 409, body: JSON.stringify({ error: 'Work order is already open' }) };
+      }
+      const { error } = await supabase
+        .from('work_orders')
+        .update({ status: 'open', completed_at: null, completed_by_id: null, updated_at: new Date().toISOString() })
+        .eq('id', workOrderId);
+      if (error) return errorResponse(error);
+      return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+    }
+
+    // ---- update_crew: replace all crew assignments for a WO ----
+    if (action === 'update_crew') {
+      if (myRole.role === 'employee') return forbidden('Only foremen and admins can assign crew to work orders');
+      const { employeeIds } = body; // array of employee UUIDs
+      if (!Array.isArray(employeeIds)) return { statusCode: 400, body: JSON.stringify({ error: 'employeeIds must be an array' }) };
+      // Delete existing assignments then insert new ones
+      await supabase.from('work_order_assignments').delete().eq('work_order_id', workOrderId);
+      if (employeeIds.length > 0) {
+        const rows = employeeIds.map(empId => ({
+          work_order_id: workOrderId,
+          employee_id: empId,
+          company_id: companyId,
+          assigned_by_id: auth.employeeId,
+        }));
+        const { error } = await supabase.from('work_order_assignments').insert(rows);
+        if (error) return errorResponse(error);
+      }
       return { statusCode: 200, body: JSON.stringify({ ok: true }) };
     }
 
