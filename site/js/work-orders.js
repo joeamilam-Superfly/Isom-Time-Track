@@ -182,7 +182,8 @@ function showWorkOrderDetail(workOrderId, wos) {
         <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="color:rgba(255,255,255,0.5);">Received</span><span style="font-weight:700;">${wo.dateReceived}</span></div>
         ${wo.scheduledDate ? `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="color:rgba(255,255,255,0.5);">Scheduled</span><span style="font-weight:700;">${wo.scheduledDate}</span></div>` : ''}
         ${wo.assignedTo ? `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="color:rgba(255,255,255,0.5);">Assigned to</span><span style="font-weight:700;">${escapeHtml(wo.assignedTo.name)}</span></div>` : ''}
-        ${wo.completedAt ? `<div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:rgba(255,255,255,0.5);">Completed</span><span style="font-weight:700;">${wo.completedAt.slice(0,10)}</span></div>` : ''}
+        ${wo.completedAt ? `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="color:rgba(255,255,255,0.5);">Completed</span><span style="font-weight:700;">${wo.completedAt.slice(0,10)}</span></div>` : ''}
+        ${wo.invoiceNumber ? `<div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:rgba(255,255,255,0.5);">Invoice #</span><span style="font-weight:700;color:#16a34a;">${escapeHtml(wo.invoiceNumber)}</span></div>` : ''}
       </div>
 
       ${wo.details ? `
@@ -261,15 +262,9 @@ function showWorkOrderDetail(workOrderId, wos) {
   }
 
   if (canBill) {
-    overlay.querySelector('#wo-detail-bill').addEventListener('click', async () => {
-      if (!confirm('Mark this work order as billed? This cannot be undone.')) return;
-      try {
-        await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'bill' }) });
-        close();
-        render('approvals', { subView: 'schedule' });
-      } catch (err) {
-        overlay.querySelector('#wo-detail-error').innerHTML = errorHtml(err.message);
-      }
+    overlay.querySelector('#wo-detail-bill').addEventListener('click', () => {
+      close();
+      showBillWorkOrderDialog(wo);
     });
   }
 
@@ -810,6 +805,65 @@ function showLogWoTimeDialog(wo) {
       errorEl.innerHTML = errorHtml(err.message);
       btn.disabled = false;
       btn.textContent = 'Log time';
+    }
+  });
+}
+
+// ---- Bill work order dialog — requires invoice number ----
+function showBillWorkOrderDialog(wo) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;max-width:380px;width:100%;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <div style="font-weight:700;font-size:17px;">Mark as billed</div>
+        <button id="bill-wo-close" style="background:none;border:none;font-size:24px;cursor:pointer;">&times;</button>
+      </div>
+      <div class="screen-sub" style="margin-bottom:14px;">WO# ${escapeHtml(wo.woNumber)}${wo.jobLocation ? ' &middot; ' + escapeHtml(wo.jobLocation.name) : ''}</div>
+      <div class="field">
+        <label for="bill-invoice-number">Invoice number *</label>
+        <input id="bill-invoice-number" type="text" placeholder="e.g. INV-2026-0042" style="font-size:16px;" />
+        <div class="screen-sub">Required. This work order will be archived once billed and can be searched by invoice number.</div>
+      </div>
+      <div id="bill-wo-error"></div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-ghost" id="bill-wo-cancel">Cancel</button>
+        <button class="btn btn-primary" id="bill-wo-save">Mark as billed</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => { if (document.body.contains(overlay)) document.body.removeChild(overlay); };
+  overlay.querySelector('#bill-wo-close').addEventListener('click', close);
+  overlay.querySelector('#bill-wo-cancel').addEventListener('click', close);
+
+  // Auto-focus the invoice number field
+  setTimeout(() => overlay.querySelector('#bill-invoice-number').focus(), 100);
+
+  overlay.querySelector('#bill-wo-save').addEventListener('click', async () => {
+    const invoiceNumber = overlay.querySelector('#bill-invoice-number').value.trim();
+    const errorEl = overlay.querySelector('#bill-wo-error');
+    const btn = overlay.querySelector('#bill-wo-save');
+
+    if (!invoiceNumber) {
+      errorEl.innerHTML = errorHtml('Invoice number is required.');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    try {
+      await api('/work-orders', {
+        method: 'PATCH',
+        body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'bill', invoiceNumber }),
+      });
+      close();
+      render('approvals', { subView: 'schedule' });
+    } catch (err) {
+      errorEl.innerHTML = errorHtml(err.message);
+      btn.disabled = false;
+      btn.textContent = 'Mark as billed';
     }
   });
 }
