@@ -80,12 +80,17 @@ async function renderReports() {
       </div>
 
       <div id="report-output"></div>
+
+      <div style="margin-top:24px;border-top:1px solid var(--line);padding-top:20px;">
+        <div id="wo-search-section"></div>
+      </div>
     </main>
   `;
 
   attachTopbarHandlers();
   attachRoleTabHandlers();
   renderPeriodValueSelector();
+  renderWorkOrderSearch(document.getElementById('wo-search-section'));
 
   document.querySelectorAll('[data-period-type]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -430,4 +435,74 @@ async function downloadReportPdf(data) {
     ${body}
     </body></html>`);
   win.document.close();
+}
+
+// ---- Work Order Search ----
+// Added at the bottom of the Reports tab for admins.
+// Searches by WO number or invoice number across all statuses.
+
+async function renderWorkOrderSearch(container) {
+  if (!container) return;
+  container.innerHTML = `
+    <div style="font-weight:700;font-size:16px;margin-bottom:12px;">Work Order Search</div>
+    <div class="field">
+      <label for="wo-search-input">Search by WO number or invoice number</label>
+      <input id="wo-search-input" type="text" placeholder="e.g. 8821 or INV-2026-0042" />
+    </div>
+    <button class="btn btn-amber" id="wo-search-btn" style="margin-bottom:16px;">Search</button>
+    <div id="wo-search-results"></div>
+  `;
+
+  const doSearch = async () => {
+    const query = container.querySelector('#wo-search-input').value.trim();
+    const resultsEl = container.querySelector('#wo-search-results');
+    if (!query) { resultsEl.innerHTML = ''; return; }
+
+    resultsEl.innerHTML = loadingHtml();
+    try {
+      const data = await api(withCompany(`/work-orders?includeCompleted=true&search=${encodeURIComponent(query)}`));
+      const wos = data.workOrders || [];
+
+      if (wos.length === 0) {
+        resultsEl.innerHTML = `<div class="empty-state"><div class="icon">🔍</div>No work orders found for "${escapeHtml(query)}".</div>`;
+        return;
+      }
+
+      resultsEl.innerHTML = wos.map(wo => {
+        const statusLabel = { open: 'Open', submitted: 'Pending review', ready_to_bill: 'Ready to bill', billed: 'Billed' }[wo.status] || wo.status;
+        const statusColor = { open: 'var(--amber-dark)', submitted: '#7c3aed', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)' }[wo.status];
+        return `
+          <div class="day-stub" style="margin-bottom:10px;cursor:pointer;" data-wo-search-view="${wo.id}">
+            <div class="day-stub-perf" style="background:${statusColor};"></div>
+            <div class="day-stub-body">
+              <div class="day-stub-top">
+                <div class="day-stub-date">WO# ${escapeHtml(wo.woNumber)}</div>
+                <div style="font-size:12px;color:${statusColor};font-weight:600;">${statusLabel}</div>
+              </div>
+              <div class="day-stub-meta">
+                ${wo.jobLocation ? `<span>${escapeHtml(wo.jobLocation.name)}</span>` : ''}
+                ${wo.assignedTo ? `<span>${escapeHtml(wo.assignedTo.name)}</span>` : ''}
+                ${wo.scheduledDate ? `<span>Scheduled: ${wo.scheduledDate}</span>` : ''}
+              </div>
+              ${wo.invoiceNumber ? `<div style="font-size:12px;margin-top:4px;color:#16a34a;font-weight:600;">Invoice #${escapeHtml(wo.invoiceNumber)}</div>` : ''}
+              ${wo.completedAt ? `<div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">Completed: ${wo.completedAt.slice(0,10)}</div>` : ''}
+              ${wo.details ? `<div style="font-size:11px;color:var(--ink-soft);margin-top:4px;white-space:pre-line;overflow:hidden;text-overflow:ellipsis;max-height:48px;">${escapeHtml(wo.details)}</div>` : ''}
+              <div style="font-size:12px;color:var(--ink-soft);margin-top:6px;">Tap to view full details &rarr;</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      resultsEl.querySelectorAll('[data-wo-search-view]').forEach(card => {
+        card.addEventListener('click', () => showWorkOrderDetail(card.getAttribute('data-wo-search-view'), wos));
+      });
+    } catch (err) {
+      resultsEl.innerHTML = errorHtml(err.message);
+    }
+  };
+
+  container.querySelector('#wo-search-btn').addEventListener('click', doSearch);
+  container.querySelector('#wo-search-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doSearch();
+  });
 }
