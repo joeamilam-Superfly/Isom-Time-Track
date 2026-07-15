@@ -14,13 +14,12 @@ async function renderPhotoLog(opts) {
       ${roleTabsHtml('photolog')}
       <div class="screen-title">Job Site Photos</div>
       <div class="field">
-        <label for="photolog-filter">Job location</label>
+        <label for="photolog-filter">Filter by job location</label>
         <select id="photolog-filter">
-          <option value="">— Select a job location to view photos —</option>
+          <option value="">All locations</option>
         </select>
-        <div class="screen-sub">Select a job location above to view its associated photos and receipts.</div>
       </div>
-      <div id="photolog-grid"></div>
+      <div id="photolog-grid">${loadingHtml()}</div>
     </main>
     <div class="bottom-bar">
       <button class="btn btn-amber" id="add-photo-btn">+ Add photo</button>
@@ -37,32 +36,26 @@ async function renderPhotoLog(opts) {
     state.jobLocations = locationsData.locations || [];
     const filterEl = document.getElementById('photolog-filter');
     filterEl.innerHTML = `
-      <option value="">— Select a job location to view photos —</option>
+      <option value="">All locations</option>
       ${state.jobLocations.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('')}
     `;
-    filterEl.addEventListener('change', () => {
-      const val = filterEl.value;
-      if (!val) {
-        document.getElementById('photolog-grid').innerHTML = '';
-        return;
-      }
-      loadPhotoLog(val);
-    });
+    filterEl.addEventListener('change', () => loadPhotoLog(filterEl.value));
   } catch (err) {
     console.error('Could not load job locations for filter:', err);
   }
 
-  // Do not auto-load — wait for user to select a location
+  // Auto-load all photos on init (receipts filtered out — they appear in Billing Report and Admin)
+  loadPhotoLog('');
 }
 
 async function loadPhotoLog(jobLocationId) {
   const gridEl = document.getElementById('photolog-grid');
   gridEl.innerHTML = loadingHtml();
   try {
-    const path = jobLocationId
-      ? withCompany(`/job-photos?jobLocationId=${jobLocationId}`)
-      : withCompany('/job-photos');
-    const data = await api(path);
+    const base = jobLocationId
+      ? withCompany(`/job-photos?jobLocationId=${jobLocationId}&photosOnly=true`)
+      : withCompany('/job-photos?photosOnly=true');
+    const data = await api(base);
     renderPhotoGrid(data.photos || []);
   } catch (err) {
     gridEl.innerHTML = errorHtml(err.message);
