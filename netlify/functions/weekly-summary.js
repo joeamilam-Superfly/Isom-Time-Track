@@ -127,13 +127,15 @@ exports.handler = async (event) => {
   // default assigned foreman for any segment that didn't specify one.
   const { data: defaultForemanRows } = await supabase
     .from('employee_company_roles')
-    .select('employee_id, foreman_id')
+    .select('employee_id, foreman_id, role')
     .eq('company_id', companyId)
     .in('employee_id', employeeIds);
 
   const defaultForemanByEmployee = {};
+  const roleByEmployee = {};
   for (const r of defaultForemanRows || []) {
     defaultForemanByEmployee[r.employee_id] = r.foreman_id;
+    roleByEmployee[r.employee_id] = r.role;
   }
 
   const byEmployee = {};
@@ -145,7 +147,16 @@ exports.handler = async (event) => {
   const summaries = Object.entries(byEmployee).map(([employeeId, empEntries]) => {
     const { entries: classified, totals } = classifyWeek(empEntries);
 
-    const approvingForemanId = determineWeeklyApprovalForeman(empEntries, defaultForemanByEmployee[employeeId]);
+    let approvingForemanId = determineWeeklyApprovalForeman(empEntries, defaultForemanByEmployee[employeeId]);
+
+    // A foreman cannot approve their own time. If the determined approver
+    // is the employee themselves (common when a foreman logs their own
+    // segments with their own foreman_id), route to the default admin
+    // fallback instead so an admin gives final approval.
+    const DEFAULT_FALLBACK_APPROVER_ID = '81572b0f-6b18-4a53-964a-f44091f52d2c';
+    if (approvingForemanId === employeeId) {
+      approvingForemanId = DEFAULT_FALLBACK_APPROVER_ID;
+    }
 
     // Group classified segments by date - a day can now have multiple
     // segments (e.g. two job sites in one day), so the frontend needs one
