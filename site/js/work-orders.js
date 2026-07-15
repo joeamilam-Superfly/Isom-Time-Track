@@ -415,6 +415,7 @@ function showCreateWorkOrderDialog() {
         <textarea id="wo-details" rows="5" placeholder="Address, phone number, job description, special instructions..."></textarea>
         <div class="screen-sub">Visible to the tech on their schedule without tapping.</div>
       </div>
+      <div id="wo-conflict-warning" style="display:none;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#92400e;"></div>
       <div id="wo-create-error"></div>
       <div class="btn-row" style="margin-top:8px;">
         <button class="btn btn-ghost" id="wo-create-cancel">Cancel</button>
@@ -464,6 +465,8 @@ function showCreateWorkOrderDialog() {
     });
   }
 
+  overlay.querySelector('#wo-scheduled-date').addEventListener('change', () => checkWoConflicts(overlay));
+
   api(withCompany('/dashboard')).then(data => {
     allPeople = data.people || [];
     const sel = overlay.querySelector('#wo-assigned');
@@ -477,6 +480,7 @@ function showCreateWorkOrderDialog() {
       const primaryId = sel.value;
       if (primaryId) createCrewIds.delete(primaryId);
       renderCreateCrewChecklist();
+      checkWoConflicts(overlay);
     });
     renderCreateCrewChecklist();
   }).catch(() => {});
@@ -726,6 +730,7 @@ function showEditWorkOrderDialog(wo) {
         <input id="edit-wo-photo" type="file" accept="image/*" />
         <div class="screen-sub">Previous photo kept in history.</div>
       </div>
+      <div id="wo-conflict-warning" style="display:none;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#92400e;"></div>
       <div id="edit-wo-error"></div>
       <div class="btn-row" style="margin-top:8px;">
         <button class="btn btn-ghost" id="edit-wo-cancel">Cancel</button>
@@ -745,7 +750,21 @@ function showEditWorkOrderDialog(wo) {
     editLocationId = id;
   }, wo.jobLocation?.name || '');
 
-  populatePeopleSelect(overlay.querySelector('#edit-wo-assigned'), wo.assignedTo?.id);
+  populatePeopleSelect(overlay.querySelector('#edit-wo-assigned'), wo.assignedTo?.id).then ? null : null;
+  api(withCompany('/dashboard')).then(data => {
+    const sel = overlay.querySelector('#edit-wo-assigned');
+    if (!sel) return;
+    data.people.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = `${p.firstName} ${p.lastName} (${p.role})`;
+      if (p.id === wo.assignedTo?.id) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', () => checkWoConflicts(overlay));
+  }).catch(() => {});
+
+  overlay.querySelector('#edit-wo-scheduled').addEventListener('change', () => checkWoConflicts(overlay));
 
   // Crew checklist — all employees shown, tap to toggle
   let crewIds = new Set((wo.crew || []).map(c => c.id));
@@ -1030,4 +1049,43 @@ function showBillWorkOrderDialog(wo) {
       btn.textContent = 'Mark as billed';
     }
   });
+}
+
+// ---- WO conflict checker ----
+// Runs when assignee or scheduled date changes in Create/Edit dialogs.
+// Warns admin if the assigned employee has schedule or leave conflicts.
+async function checkWoConflicts(overlay) {
+  const assignedId = overlay.querySelector('#wo-assigned, #edit-wo-assigned')?.value;
+  const scheduledDate = overlay.querySelector('#wo-scheduled-date, #edit-wo-scheduled')?.value;
+  const warningEl = overlay.querySelector('#wo-conflict-warning');
+  if (!warningEl) return;
+
+  if (!assignedId || !scheduledDate) {
+    warningEl.style.display = 'none';
+    return;
+  }
+
+  try {
+    const result = await api('/work-orders', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        companyId: state.activeCompanyId,
+        workOrderId: 'conflict-check',
+        action: 'check_conflicts',
+        employeeId: assignedId,
+        scheduledDate,
+      }),
+    });
+
+    const conflicts = result.conflicts || [];
+    if (conflicts.length === 0) {
+      warningEl.style.display = 'none';
+    } else {
+      warningEl.style.display = 'block';
+      warningEl.innerHTML = `⚠ <strong>Scheduling conflict${conflicts.length > 1 ? 's' : ''}:</strong><ul style="margin:6px 0 0 16px;padding:0;">${conflicts.map(c => `<li>${c.message}</li>`).join('')}</ul><div style="margin-top:6px;font-size:12px;">You can still assign this WO — this is a warning only.</div>`;
+    }
+  } catch (err) {
+    // Silently ignore conflict check errors — don't block the dialog
+    warningEl.style.display = 'none';
+  }
 }
