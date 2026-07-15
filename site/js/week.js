@@ -198,7 +198,7 @@ function topbarHtml() {
   return `
     <div class="topbar">
       <div class="mark">
-        <img src="${logoSrc}" alt="${logoAlt}" style="height:${logoHeight}; width:auto; display:block;" />
+        <img src="${logoSrc}" alt="${logoAlt}" style="height:${logoHeight}; width:auto; display:block; ${isSouthPointe ? 'background:#fff; border-radius:4px; padding:3px 8px;' : ''}" />
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
         <button class="user-chip" id="help-btn" style="border:none;" aria-label="Help">&#128172;</button>
@@ -259,6 +259,11 @@ function attachRoleTabHandlers() {
   document.querySelectorAll('[data-tab]').forEach(el => {
     el.addEventListener('click', () => render(el.getAttribute('data-tab')));
   });
+  // Scroll the active tab into view on mobile
+  const activeTab = document.querySelector('.nav-tab.active');
+  if (activeTab) {
+    activeTab.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'center' });
+  }
 }
 
 function loadingHtml() {
