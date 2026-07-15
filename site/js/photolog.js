@@ -62,7 +62,10 @@ async function renderPhotoLog(opts) {
     }
 
     filterEl.innerHTML = opts.join('');
-    state.jobLocations = filterData.locations || [];
+    // Store only locations-with-photos for filter display
+    // but fetch ALL locations for the add-photo dialog
+    const allLocsData = await api(withCompany('/job-locations'));
+    state.jobLocations = allLocsData.locations || [];
 
     filterEl.addEventListener('change', () => {
       const val = filterEl.value;
