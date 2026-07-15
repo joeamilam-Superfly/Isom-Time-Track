@@ -22,10 +22,14 @@ exports.handler = async (event) => {
       .from('job_site_photos')
       .select('id, employee_id, job_location_id, storage_path, description, is_receipt, receipt_amount, taken_at, employees(first_name, last_name), job_locations(name)')
       .eq('company_id', companyId)
-      .order('taken_at', { ascending: false })
-      .limit(100);
+      .order('taken_at', { ascending: false });
+      // No limit — return all photos
 
-    if (params.jobLocationId) query = query.eq('job_location_id', params.jobLocationId);
+    if (params.jobLocationId === 'none') {
+      query = query.is('job_location_id', null); // photos with no location
+    } else if (params.jobLocationId) {
+      query = query.eq('job_location_id', params.jobLocationId);
+    }
     if (params.receiptsOnly === 'true') query = query.eq('is_receipt', true);
     if (params.photosOnly === 'true') query = query.eq('is_receipt', false);
     if (params.startDate) query = query.gte('taken_at', params.startDate + 'T00:00:00Z');
@@ -37,13 +41,12 @@ exports.handler = async (event) => {
     const withUrls = await Promise.all((data || []).map(async (p) => {
       const { data: signed, error: signError } = await supabase.storage
         .from(PHOTO_BUCKET)
-        .createSignedUrl(p.storage_path, 60 * 30); // 30 minutes
+        .createSignedUrl(p.storage_path, 60 * 30);
       return {
         id: p.id,
-        jobLocationName: p.job_locations ? p.job_locations.name : null,
-        employeeName: p.employees ? `${p.employees.first_name} ${p.employees.last_name}` : null,
         jobLocationId: p.job_location_id,
         jobLocationName: p.job_locations?.name || null,
+        employeeName: p.employees ? `${p.employees.first_name} ${p.employees.last_name}` : null,
         description: p.description,
         isReceipt: p.is_receipt,
         receiptAmount: p.receipt_amount ? Number(p.receipt_amount) : null,
@@ -130,6 +133,22 @@ exports.handler = async (event) => {
   }
 
   // ---------------- DELETE: remove a photo (the uploader or an admin) ----------------
+  // ---------------- PATCH: edit photo metadata ----------------
+  if (event.httpMethod === 'PATCH') {
+    if (myRole.role === 'employee') return forbidden('Only foremen and admins can edit photos');
+    let body;
+    try { body = JSON.parse(event.body || '{}'); } catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid body' }) }; }
+    const { photoId, jobLocationId: newLocId, description: newDesc, receiptAmount: newAmount } = body;
+    if (!photoId) return { statusCode: 400, body: JSON.stringify({ error: 'photoId is required' }) };
+    const updateFields = { updated_at: new Date().toISOString() };
+    if (newLocId !== undefined) updateFields.job_location_id = newLocId || null;
+    if (newDesc !== undefined) updateFields.description = newDesc || null;
+    if (newAmount !== undefined) updateFields.receipt_amount = newAmount ? Number(newAmount) : null;
+    const { error } = await supabase.from('job_site_photos').update(updateFields).eq('id', photoId).eq('company_id', companyId);
+    if (error) return errorResponse(error);
+    return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+  }
+
   if (event.httpMethod === 'DELETE') {
     const params = event.queryStringParameters || {};
     const { photoId, companyId } = params;
