@@ -437,6 +437,13 @@ main {
   border-bottom-color: var(--amber);
 }
 
+/* Schedule grid sticky headers — desktop only */
+@media (max-width: 899px) {
+  .schedule-sticky-head th {
+    position: static !important;
+  }
+}
+
 .employee-row {
   display: flex;
   justify-content: space-between;
