@@ -295,7 +295,7 @@ function showWorkOrderDetail(workOrderId, wos) {
       try {
         await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'complete' }) });
         close();
-        render('approvals', { subView: 'schedule' });
+        refreshAndReopenWo(wo.id);
       } catch (err) {
         overlay.querySelector('#wo-detail-error').innerHTML = errorHtml(err.message);
       }
@@ -317,7 +317,7 @@ function showWorkOrderDetail(workOrderId, wos) {
       try {
         await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'submit' }) });
         close();
-        render('approvals', { subView: 'schedule' });
+        refreshAndReopenWo(wo.id);
       } catch (err) {
         overlay.querySelector('#wo-detail-error').innerHTML = errorHtml(err.message);
       }
@@ -330,7 +330,7 @@ function showWorkOrderDetail(workOrderId, wos) {
       try {
         await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'reopen' }) });
         close();
-        render('approvals', { subView: 'schedule' });
+        refreshAndReopenWo(wo.id);
       } catch (err) {
         overlay.querySelector('#wo-detail-error').innerHTML = errorHtml(err.message);
       }
@@ -624,7 +624,7 @@ function showUpdateWorkOrderPhotoDialog(workOrderId) {
     try {
       await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId, action: 'update_photo', imageBase64, mimeType: imageMimeType }) });
       close();
-      render('approvals', { subView: 'schedule' });
+      refreshAndReopenWo(workOrderId);
     } catch (err) {
       errorEl.innerHTML = errorHtml(err.message);
       btn.disabled = false;
@@ -847,7 +847,7 @@ function showEditWorkOrderDialog(wo) {
         await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'update_photo', imageBase64: newImageBase64, mimeType: newMimeType }) });
       }
       close();
-      render('approvals', { subView: 'schedule' });
+      refreshAndReopenWo(wo.id);
     } catch (err) {
       errorEl.innerHTML = errorHtml(err.message);
       btn.disabled = false;
@@ -973,17 +973,7 @@ function showLogWoTimeDialog(wo) {
         workOrderId: wo.id,
       })});
       close();
-      // Re-fetch and re-open WO detail with updated time entries
-      try {
-        const [openData, billedData] = await Promise.all([
-          api(withCompany('/work-orders?status=open')).catch(() => ({ workOrders: [] })),
-          api(withCompany('/work-orders?status=ready_to_bill')).catch(() => ({ workOrders: [] })),
-        ]);
-        const allWos = [...(openData.workOrders||[]), ...(billedData.workOrders||[])];
-        const updated = allWos.find(w => w.id === wo.id);
-        if (updated) showWorkOrderDetail(updated.id, allWos);
-        else render('approvals', { subView: 'schedule' });
-      } catch { render('approvals', { subView: 'schedule' }); }
+      refreshAndReopenWo(wo.id);
     } catch (err) {
       errorEl.innerHTML = errorHtml(err.message);
       btn.disabled = false;
@@ -1087,5 +1077,21 @@ async function checkWoConflicts(overlay) {
   } catch (err) {
     // Silently ignore conflict check errors — don't block the dialog
     warningEl.style.display = 'none';
+  }
+}
+
+// ---- Stay on WO: re-fetch and reopen after any action ----
+async function refreshAndReopenWo(woId) {
+  try {
+    const [openData, closedData] = await Promise.all([
+      api(withCompany('/work-orders?status=open')).catch(() => ({ workOrders: [] })),
+      api(withCompany('/work-orders?status=ready_to_bill')).catch(() => ({ workOrders: [] })),
+    ]);
+    const allWos = [...(openData.workOrders || []), ...(closedData.workOrders || [])];
+    const updated = allWos.find(w => w.id === woId);
+    if (updated) showWorkOrderDetail(updated.id, allWos);
+    else render('approvals', { subView: 'schedule' });
+  } catch {
+    render('approvals', { subView: 'schedule' });
   }
 }
