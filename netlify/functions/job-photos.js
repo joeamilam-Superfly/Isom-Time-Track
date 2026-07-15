@@ -16,6 +16,53 @@ exports.handler = async (event) => {
 
     const myRole = await resolveCompanyRole(auth.employeeId, companyId, auth.superAdmin);
     if (!myRole) return forbidden('You do not have access to this company');
+    // Return distinct locations/WOs that have photos — for populating filter dropdowns
+    if (params.distinctLocations === 'true') {
+      // Distinct job locations from job_site_photos
+      const { data: locPhotos } = await supabase
+        .from('job_site_photos')
+        .select('job_location_id, job_locations(id, name)')
+        .eq('company_id', companyId)
+        .eq('is_receipt', false)
+        .not('job_location_id', 'is', null);
+
+      const locationMap = {};
+      for (const p of locPhotos || []) {
+        if (p.job_locations && !locationMap[p.job_location_id]) {
+          locationMap[p.job_location_id] = p.job_locations.name;
+        }
+      }
+
+      // WOs that have photos in work_order_photos
+      const { data: woPhotos } = await supabase
+        .from('work_order_photos')
+        .select('work_order_id, work_orders!work_order_photos_work_order_id_fkey(id, wo_number, job_locations(name))')
+        .eq('company_id', companyId);
+
+      const woMap = {};
+      for (const p of woPhotos || []) {
+        if (p.work_orders && !woMap[p.work_order_id]) {
+          const wo = p.work_orders;
+          woMap[p.work_order_id] = `WO# ${wo.wo_number}${wo.job_locations?.name ? ' — ' + wo.job_locations.name : ''}`;
+        }
+      }
+
+      // Also check for unassigned photos
+      const { data: unassigned } = await supabase
+        .from('job_site_photos')
+        .select('id')
+        .eq('company_id', companyId)
+        .eq('is_receipt', false)
+        .is('job_location_id', null)
+        .limit(1);
+
+      return { statusCode: 200, body: JSON.stringify({
+        locations: Object.entries(locationMap).map(([id, name]) => ({ id, name })).sort((a,b) => a.name.localeCompare(b.name)),
+        workOrders: Object.entries(woMap).map(([id, name]) => ({ id, name, isWo: true })).sort((a,b) => a.name.localeCompare(b.name)),
+        hasUnassigned: (unassigned || []).length > 0,
+      })};
+    }
+
     // Any active role (including plain employee) can browse, per explicit decision.
 
     let query = supabase
