@@ -2,6 +2,37 @@
 // Admin/foreman create and assign; tech marks complete; admin marks billed.
 // All dialogs use overlay-scoped querySelector to avoid ID conflicts.
 
+// ---- Image compression helper ----
+// Resizes large photos before base64 encoding to stay under Netlify's
+// 6MB function body limit. iPhone photos can be 8-10MB uncompressed.
+// Targets max 1600px on longest side at 82% JPEG quality (~200-400KB).
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 1600;
+        let { width, height } = img;
+        if (width > MAX || height > MAX) {
+          if (width > height) { height = Math.round(height * MAX / width); width = MAX; }
+          else { width = Math.round(width * MAX / height); height = MAX; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' });
+      };
+      img.onerror = reject;
+      img.src = ev.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 // ---- Shared helper: location autocomplete (same pattern as day-edit screen) ----
 // Fetches locations fresh, renders a text input with live suggestions,
 // calls onSelect(locationId, locationName) when user picks one.
@@ -458,17 +489,16 @@ function showCreateWorkOrderDialog() {
   });
 
   let imageBase64 = null, imageMimeType = null;
-  overlay.querySelector('#wo-photo-input').addEventListener('change', (e) => {
+  overlay.querySelector('#wo-photo-input').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      imageBase64 = ev.target.result.split(',')[1];
-      imageMimeType = file.type;
-      overlay.querySelector('#wo-photo-img').src = ev.target.result;
+    try {
+      const compressed = await compressImage(file);
+      imageBase64 = compressed.base64;
+      imageMimeType = compressed.mimeType;
+      overlay.querySelector('#wo-photo-img').src = `data:${imageMimeType};base64,${imageBase64}`;
       overlay.querySelector('#wo-photo-preview').style.display = 'block';
-    };
-    reader.readAsDataURL(file);
+    } catch (err) { console.error('Photo compression failed:', err); }
   });
 
   overlay.querySelector('#wo-create-save').addEventListener('click', async () => {
@@ -569,18 +599,17 @@ function showUpdateWorkOrderPhotoDialog(workOrderId) {
   overlay.querySelector('#wo-update-cancel').addEventListener('click', close);
 
   let imageBase64 = null, imageMimeType = null;
-  overlay.querySelector('#wo-update-photo-input').addEventListener('change', (e) => {
+  overlay.querySelector('#wo-update-photo-input').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      imageBase64 = ev.target.result.split(',')[1];
-      imageMimeType = file.type;
-      overlay.querySelector('#wo-update-img').src = ev.target.result;
+    try {
+      const compressed = await compressImage(file);
+      imageBase64 = compressed.base64;
+      imageMimeType = compressed.mimeType;
+      overlay.querySelector('#wo-update-img').src = `data:${imageMimeType};base64,${imageBase64}`;
       overlay.querySelector('#wo-update-preview').style.display = 'block';
       overlay.querySelector('#wo-update-save').disabled = false;
-    };
-    reader.readAsDataURL(file);
+    } catch (err) { console.error('Photo compression failed:', err); }
   });
 
   overlay.querySelector('#wo-update-save').addEventListener('click', async () => {
@@ -759,12 +788,14 @@ function showEditWorkOrderDialog(wo) {
   });
 
   let newImageBase64 = null, newMimeType = null;
-  overlay.querySelector('#edit-wo-photo').addEventListener('change', (e) => {
+  overlay.querySelector('#edit-wo-photo').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => { newImageBase64 = ev.target.result.split(',')[1]; newMimeType = file.type; };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImage(file);
+      newImageBase64 = compressed.base64;
+      newMimeType = compressed.mimeType;
+    } catch (err) { console.error('Photo compression failed:', err); }
   });
 
   overlay.querySelector('#edit-wo-save').addEventListener('click', async () => {
