@@ -401,18 +401,35 @@ main {
   display: flex;
   border-bottom: 1.5px solid var(--line);
   margin-bottom: 18px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE */
+}
+
+.nav-tabs::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
 }
 
 .nav-tab {
-  flex: 1;
+  flex: 0 0 auto; /* don't shrink — scroll instead */
+  white-space: nowrap;
   text-align: center;
-  padding: 10px 0;
+  padding: 10px 14px;
   font-size: 13px;
   font-weight: 600;
   color: var(--ink-soft);
   border-bottom: 2px solid transparent;
   background: none;
   border-top: none; border-left: none; border-right: none;
+}
+
+/* On desktop where tabs fit, let them share the space evenly */
+@media (min-width: 700px) {
+  .nav-tab {
+    flex: 1;
+    padding: 10px 0;
+  }
 }
 
 .nav-tab.active {
