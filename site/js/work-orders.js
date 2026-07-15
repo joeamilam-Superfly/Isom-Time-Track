@@ -128,6 +128,7 @@ function workOrderCardHtml(wo, myRole) {
           ${wo.jobLocation ? `<span>${escapeHtml(wo.jobLocation.name)}</span>` : ''}
           ${wo.scheduledDate ? `<span>Scheduled: ${wo.scheduledDate}</span>` : ''}
           ${wo.assignedTo ? `<span>${escapeHtml(wo.assignedTo.name)}</span>` : ''}
+          ${wo.crew && wo.crew.length > 0 ? `<span>+${wo.crew.length} crew: ${wo.crew.map(c => escapeHtml(c.name.split(' ')[0])).join(', ')}</span>` : ''}
         </div>
         ${wo.details ? `<div style="margin-top:6px; font-size:12px; color:var(--ink); white-space:pre-line; background:var(--paper-dim); border-radius:6px; padding:8px 10px;">${escapeHtml(wo.details)}</div>` : ''}
         ${pendingReview ? `<div style="background:#7c3aed;color:#fff;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:600;margin-bottom:6px;">⏳ Submitted by tech — awaiting your approval</div>` : ''}
@@ -154,6 +155,7 @@ function showWorkOrderDetail(workOrderId, wos) {
   const canSubmit = wo.status === 'open' && myRole === 'employee' && wo.assignedTo?.id === state.employee.id;
   const canManage = myRole === 'admin' || myRole === 'foreman';
   const canBill = myRole === 'admin' && wo.status === 'ready_to_bill';
+  const canReopen = (wo.status === 'ready_to_bill' || wo.status === 'submitted') && (myRole === 'admin' || myRole === 'foreman');
   const pendingReview = wo.status === 'submitted' && (myRole === 'admin' || myRole === 'foreman');
 
   const overlay = document.createElement('div');
@@ -189,6 +191,7 @@ function showWorkOrderDetail(workOrderId, wos) {
         <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="color:rgba(255,255,255,0.5);">Received</span><span style="font-weight:700;">${wo.dateReceived}</span></div>
         ${wo.scheduledDate ? `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="color:rgba(255,255,255,0.5);">Scheduled</span><span style="font-weight:700;">${wo.scheduledDate}</span></div>` : ''}
         ${wo.assignedTo ? `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="color:rgba(255,255,255,0.5);">Assigned to</span><span style="font-weight:700;">${escapeHtml(wo.assignedTo.name)}</span></div>` : ''}
+        ${wo.crew && wo.crew.length > 0 ? `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="color:rgba(255,255,255,0.5);">Crew</span><span style="font-weight:700;text-align:right;">${wo.crew.map(c => escapeHtml(c.name)).join('<br>')}</span></div>` : ''}
         ${wo.completedAt ? `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="color:rgba(255,255,255,0.5);">Completed</span><span style="font-weight:700;">${wo.completedAt.slice(0,10)}</span></div>` : ''}
         ${wo.invoiceNumber ? `<div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:rgba(255,255,255,0.5);">Invoice #</span><span style="font-weight:700;color:#16a34a;">${escapeHtml(wo.invoiceNumber)}</span></div>` : ''}
       </div>
@@ -220,7 +223,7 @@ function showWorkOrderDetail(workOrderId, wos) {
         <button id="wo-add-time-btn" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">+ Log time toward this WO</button>
         ${canManage ? `<button id="wo-detail-edit" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">Edit work order</button>` : ''}
         ${canManage ? `<button id="wo-detail-photo" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">Update photo</button>` : ''}
-        ${canManage ? `<button id="wo-detail-reassign" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">Reassign</button>` : ''}
+        ${canReopen ? `<button id="wo-detail-reopen" style="background:rgba(255,165,0,0.2);color:#f59e0b;border:1px solid #f59e0b;padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">↩ Reopen work order</button>` : ''}
       </div>
     </div>
   `;
@@ -282,6 +285,19 @@ function showWorkOrderDetail(workOrderId, wos) {
       if (!confirm('Submit this work order to your foreman for approval?')) return;
       try {
         await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'submit' }) });
+        close();
+        render('approvals', { subView: 'schedule' });
+      } catch (err) {
+        overlay.querySelector('#wo-detail-error').innerHTML = errorHtml(err.message);
+      }
+    });
+  }
+
+  if (canReopen) {
+    overlay.querySelector('#wo-detail-reopen').addEventListener('click', async () => {
+      if (!confirm('Reopen this work order? Status will return to Open so changes can be made.')) return;
+      try {
+        await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'reopen' }) });
         close();
         render('approvals', { subView: 'schedule' });
       } catch (err) {
@@ -609,6 +625,20 @@ function showEditWorkOrderDialog(wo) {
         <textarea id="edit-wo-details" rows="5" placeholder="Address, phone number, job description...">${wo.details ? escapeHtml(wo.details) : ''}</textarea>
       </div>
       <div class="field">
+        <label>Crew members (optional)</label>
+        <div id="edit-wo-crew-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
+          ${(wo.crew || []).map(c => `
+            <div style="display:flex;align-items:center;gap:4px;background:var(--paper-dim);border:1px solid var(--line);border-radius:20px;padding:4px 10px;font-size:12px;">
+              <span>${escapeHtml(c.name)}</span>
+              <button data-remove-crew="${c.id}" style="background:none;border:none;cursor:pointer;color:var(--ink-soft);font-size:16px;line-height:1;padding:0 2px;">&times;</button>
+            </div>`).join('')}
+        </div>
+        <select id="edit-wo-crew-add" style="width:100%;">
+          <option value="">+ Add crew member...</option>
+        </select>
+        <div class="screen-sub">Each crew member receives the WO on their schedule and can log time against it.</div>
+      </div>
+      <div class="field">
         <label>Update photo (optional)</label>
         <input id="edit-wo-photo" type="file" accept="image/*" />
         <div class="screen-sub">Previous photo kept in history.</div>
@@ -633,6 +663,53 @@ function showEditWorkOrderDialog(wo) {
   }, wo.jobLocation?.name || '');
 
   populatePeopleSelect(overlay.querySelector('#edit-wo-assigned'), wo.assignedTo?.id);
+
+  // Crew management — track current crew as a mutable array
+  let crewIds = (wo.crew || []).map(c => c.id);
+  let crewNames = {};
+  (wo.crew || []).forEach(c => { crewNames[c.id] = c.name; });
+
+  // Populate add-crew dropdown (exclude already-assigned and primary assignee)
+  populatePeopleSelect(overlay.querySelector('#edit-wo-crew-add')).then ? null : null;
+  api(withCompany('/dashboard')).then(data => {
+    const sel = overlay.querySelector('#edit-wo-crew-add');
+    if (!sel) return;
+    (data.people || []).forEach(p => {
+      if (crewIds.includes(p.id) || p.id === wo.assignedTo?.id) return;
+      crewNames[p.id] = `${p.firstName} ${p.lastName}`;
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = `${p.firstName} ${p.lastName} (${p.role})`;
+      sel.appendChild(opt);
+    });
+  }).catch(() => {});
+
+  function renderCrewList() {
+    const listEl = overlay.querySelector('#edit-wo-crew-list');
+    if (!listEl) return;
+    listEl.innerHTML = crewIds.map(id => `
+      <div style="display:flex;align-items:center;gap:4px;background:var(--paper-dim);border:1px solid var(--line);border-radius:20px;padding:4px 10px;font-size:12px;">
+        <span>${escapeHtml(crewNames[id] || id)}</span>
+        <button data-remove-crew="${id}" style="background:none;border:none;cursor:pointer;color:var(--ink-soft);font-size:16px;line-height:1;padding:0 2px;">&times;</button>
+      </div>`).join('');
+    listEl.querySelectorAll('[data-remove-crew]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        crewIds = crewIds.filter(id => id !== btn.getAttribute('data-remove-crew'));
+        renderCrewList();
+      });
+    });
+  }
+  renderCrewList();
+
+  overlay.querySelector('#edit-wo-crew-add').addEventListener('change', (e) => {
+    const val = e.target.value;
+    if (!val || crewIds.includes(val)) { e.target.value = ''; return; }
+    crewIds.push(val);
+    // Remove from dropdown
+    e.target.querySelector(`option[value="${val}"]`)?.remove();
+    e.target.value = '';
+    renderCrewList();
+  });
 
   let newImageBase64 = null, newMimeType = null;
   overlay.querySelector('#edit-wo-photo').addEventListener('change', (e) => {
@@ -667,6 +744,8 @@ function showEditWorkOrderDialog(wo) {
     btn.textContent = 'Saving...';
     try {
       await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'update_details', woNumber, scheduledDate, jobLocationId, assignedToId, details }) });
+      // Save crew assignments
+      await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'update_crew', employeeIds: crewIds }) });
       if (newImageBase64) {
         await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'update_photo', imageBase64: newImageBase64, mimeType: newMimeType }) });
       }
