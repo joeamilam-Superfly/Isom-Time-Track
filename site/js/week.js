@@ -43,13 +43,14 @@ async function renderWeek(opts) {
     ]);
     const mySummary = (data.summaries || [])[0];
 
-    // All open WOs assigned to this employee
+    // All open WOs where this employee is primary assignee OR crew member
     const allMyWos = (woData.workOrders || []).filter(wo =>
-      wo.assignedTo?.id === state.employee.id
+      wo.assignedTo?.id === state.employee.id ||
+      (wo.crew || []).some(c => c.id === state.employee.id)
     );
     // WOs with a scheduled date — shown as day stub badges
     const myWos = allMyWos.filter(wo => wo.scheduledDate);
-    // WOs without a scheduled date or not in this week — shown in banner
+    // WOs without a scheduled date — shown in banner only
     const unscheduledWos = allMyWos.filter(wo => !wo.scheduledDate);
 
     // Show banner for any assigned WOs (scheduled or not)
