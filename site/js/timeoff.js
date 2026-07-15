@@ -300,7 +300,30 @@ function showNewPtoRequestDialog(balance) {
 
     const btn = document.getElementById('pto-dialog-submit');
     btn.disabled = true;
-    btn.textContent = 'Submitting...';
+    btn.textContent = 'Checking...';
+
+    // Check if employee is already scheduled on any of the requested dates
+    try {
+      const schedData = await api(withCompany(`/schedule?startDate=${startDate}&endDate=${endDate}&employeeId=${state.employee.id}`));
+      const schedEntries = (schedData.entries || []).filter(e => {
+        const locName = e.job_locations?.name?.toUpperCase();
+        return locName && locName !== 'OFF';
+      });
+      if (schedEntries.length > 0) {
+        const dateList = [...new Set(schedEntries.map(e => e.scheduled_date))].sort().join(', ');
+        const confirmed = confirm(
+          `⚠ You are already scheduled to work on: ${dateList}\n\nYou will need to contact your foreman or admin to remove those schedule entries before your leave can be approved.\n\nDo you still want to submit this leave request?`
+        );
+        if (!confirmed) {
+          btn.disabled = false;
+          btn.textContent = 'Submit request';
+          return;
+        }
+      }
+    } catch (err) {
+      // If conflict check fails, continue — don't block the leave request
+      console.error('Schedule conflict check failed:', err);
+    }
 
     // Check whether this should be a leave or UTO request.
     // UTO is only offered if leave balance is zero.
