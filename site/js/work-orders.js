@@ -252,6 +252,7 @@ function showWorkOrderDetail(workOrderId, wos) {
         ${canSubmit ? `<button id="wo-detail-submit" style="background:#7c3aed;color:#fff;border:none;padding:14px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">Submit for foreman approval</button>` : ''}
         ${canBill ? `<button id="wo-detail-bill" style="background:#16a34a;color:#fff;border:none;padding:14px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">Mark as billed</button>` : ''}
         <button id="wo-add-time-btn" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">+ Log time toward this WO</button>
+        <button id="wo-add-site-photos-btn" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">📷 Add job site photos</button>
         ${canManage ? `<button id="wo-detail-edit" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">Edit work order</button>` : ''}
         ${canManage ? `<button id="wo-detail-photo" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">Update photo</button>` : ''}
         ${canReopen ? `<button id="wo-detail-reopen" style="background:rgba(255,165,0,0.2);color:#f59e0b;border:1px solid #f59e0b;padding:14px;border-radius:8px;font-size:14px;cursor:pointer;">↩ Reopen work order</button>` : ''}
@@ -310,6 +311,7 @@ function showWorkOrderDetail(workOrderId, wos) {
   }
 
   overlay.querySelector('#wo-add-time-btn').addEventListener('click', () => { close(); showLogWoTimeDialog(wo); });
+  overlay.querySelector('#wo-add-site-photos-btn').addEventListener('click', () => { close(); showWoSitePhotosDialog(wo); });
 
   if (canSubmit) {
     overlay.querySelector('#wo-detail-submit').addEventListener('click', async () => {
@@ -1094,4 +1096,130 @@ async function refreshAndReopenWo(woId) {
   } catch {
     render('approvals', { subView: 'schedule' });
   }
+}
+
+// ---- Add job site photos from a work order ----
+// Opens a multi-photo upload dialog pre-filled with the WO's job location.
+// Photos go into job_site_photos (appear in Photos tab) not work_order_photos.
+function showWoSitePhotosDialog(wo) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;overflow-y:auto;-webkit-overflow-scrolling:touch;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;max-height:85vh;overflow-y:auto;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <div style="font-weight:700;font-size:17px;">Add job site photos</div>
+        <button id="wo-site-photos-close" style="background:none;border:none;font-size:24px;cursor:pointer;">&times;</button>
+      </div>
+      <div class="screen-sub" style="margin-bottom:14px;">WO# ${escapeHtml(wo.woNumber)}${wo.jobLocation ? ' &middot; ' + escapeHtml(wo.jobLocation.name) : ''}</div>
+
+      <div class="field">
+        <label>Photos (select one or more)</label>
+        <input id="wo-site-photo-input" type="file" accept="image/*" multiple />
+        <div class="screen-sub">Select multiple photos at once from your library.</div>
+      </div>
+      <div id="wo-site-photo-preview" style="display:none;margin-bottom:14px;"></div>
+
+      <div class="field">
+        <label for="wo-site-photo-location">Job location</label>
+        <select id="wo-site-photo-location">
+          <option value="">No specific location</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="wo-site-photo-description">Description (optional)</label>
+        <textarea id="wo-site-photo-description" rows="2" placeholder="Describe the work shown..."></textarea>
+      </div>
+
+      <div id="wo-site-photo-error"></div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-ghost" id="wo-site-photo-cancel">Cancel</button>
+        <button class="btn btn-primary" id="wo-site-photo-save" disabled>Upload</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => { if (document.body.contains(overlay)) document.body.removeChild(overlay); };
+  overlay.querySelector('#wo-site-photos-close').addEventListener('click', close);
+  overlay.querySelector('#wo-site-photo-cancel').addEventListener('click', close);
+
+  // Populate location dropdown — pre-select WO's job location
+  api(withCompany('/job-locations')).then(d => {
+    const sel = overlay.querySelector('#wo-site-photo-location');
+    if (!sel) return;
+    (d.locations || []).forEach(l => {
+      const opt = document.createElement('option');
+      opt.value = l.id;
+      opt.textContent = l.name;
+      if (l.id === wo.jobLocation?.id) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }).catch(() => {});
+
+  let compressedImages = [];
+
+  overlay.querySelector('#wo-site-photo-input').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    const saveBtn = overlay.querySelector('#wo-site-photo-save');
+    const errorEl = overlay.querySelector('#wo-site-photo-error');
+    const previewGrid = overlay.querySelector('#wo-site-photo-preview');
+    errorEl.innerHTML = '';
+    saveBtn.disabled = true;
+    saveBtn.textContent = `Processing ${files.length} photo${files.length > 1 ? 's' : ''}...`;
+    compressedImages = [];
+
+    try {
+      for (const file of files) {
+        const compressed = await compressImage(file);
+        compressedImages.push(compressed);
+      }
+      previewGrid.style.display = 'block';
+      previewGrid.innerHTML = `
+        <div style="font-size:12px;color:var(--ink-soft);margin-bottom:6px;">${compressedImages.length} photo${compressedImages.length > 1 ? 's' : ''} selected</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+          ${compressedImages.map((img, i) => `
+            <img src="data:${img.mimeType};base64,${img.base64}" data-preview-idx="${i}" style="width:100%;height:80px;object-fit:cover;border-radius:6px;display:block;" />`).join('')}
+        </div>`;
+      saveBtn.disabled = false;
+      saveBtn.textContent = `Upload ${compressedImages.length} photo${compressedImages.length > 1 ? 's' : ''}`;
+    } catch (err) {
+      errorEl.innerHTML = errorHtml(`Could not process photos: ${err.message}`);
+      saveBtn.textContent = 'Upload';
+    }
+  });
+
+  overlay.querySelector('#wo-site-photo-save').addEventListener('click', async () => {
+    if (!compressedImages.length) return;
+    const jobLocationId = overlay.querySelector('#wo-site-photo-location').value || null;
+    const description = overlay.querySelector('#wo-site-photo-description').value.trim() || null;
+    const errorEl = overlay.querySelector('#wo-site-photo-error');
+    const saveBtn = overlay.querySelector('#wo-site-photo-save');
+    saveBtn.disabled = true;
+
+    try {
+      for (let i = 0; i < compressedImages.length; i++) {
+        saveBtn.textContent = `Uploading ${i + 1} of ${compressedImages.length}...`;
+        await api('/job-photos', {
+          method: 'POST',
+          body: JSON.stringify({
+            companyId: state.activeCompanyId,
+            jobLocationId,
+            description,
+            imageBase64: compressedImages[i].base64,
+            mimeType: compressedImages[i].mimeType,
+            isReceipt: false,
+            receiptAmount: null,
+          }),
+        });
+      }
+      close();
+      refreshAndReopenWo(wo.id);
+    } catch (err) {
+      errorEl.innerHTML = errorHtml(err.message);
+      saveBtn.disabled = false;
+      saveBtn.textContent = `Upload ${compressedImages.length} photo${compressedImages.length > 1 ? 's' : ''}`;
+    }
+  });
 }
