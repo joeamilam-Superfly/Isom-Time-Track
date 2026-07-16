@@ -17,8 +17,9 @@ async function renderApprovals(opts) {
         <button class="nav-tab ${subView === 'schedule' ? 'active' : ''}" data-subview="schedule">Schedule</button>
       </div>
       ${subView === 'schedule' ? weekJumpDropdownHtml(weekOf, 0, 6) : weekJumpDropdownHtml(weekOf, 8, 1)}
-      <div id="approvals-list">${loadingHtml()}</div>
     </main>
+    <div id="schedule-sticky-anchor"></div>
+    <div id="approvals-list" style="padding:0 18px 100px;">${loadingHtml()}</div>
   `;
 
   attachTopbarHandlers();
@@ -498,8 +499,16 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
 
   document.getElementById('app').classList.add('schedule-active');
 
-  // Sync horizontal scroll: when body scrolls left/right, header follows
-  const headerWrap = listEl.querySelector('.schedule-sticky-header-wrap');
+  // Move sticky header into #schedule-sticky-anchor — a direct child of #app
+  // so position:sticky works relative to the page scroll, not a nested container
+  const anchorEl = document.getElementById('schedule-sticky-anchor');
+  if (anchorEl) {
+    const stickyWrap = listEl.querySelector('.schedule-sticky-header-wrap');
+    if (stickyWrap) anchorEl.appendChild(stickyWrap);
+  }
+
+  // Sync horizontal scroll: body scrolls → header follows
+  const headerWrap = document.querySelector('#schedule-sticky-anchor .schedule-sticky-header-wrap');
   const bodyScroll = listEl.querySelector('.schedule-body-scroll');
   if (headerWrap && bodyScroll) {
     bodyScroll.addEventListener('scroll', () => {
