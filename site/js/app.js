@@ -161,6 +161,8 @@ const root = document.getElementById('app');
 
 function render(view, opts) {
   state.view = view;
+  // Remove schedule-active when leaving the schedule grid
+  if (view !== 'approvals') document.getElementById('app').classList.remove('schedule-active');
   if (view === 'login') return renderLogin();
   if (view === 'week') return renderWeek(opts || {});
   if (view === 'dayEdit') return renderDayEdit(opts || {});
