@@ -194,7 +194,8 @@ exports.handler = async (event) => {
       approvingForemanId,
       days,
       totals: {
-        regularHoursWorked: round2(totals.regular),
+        regularHoursWorked: round2(totals.regular_ex_lunch),
+        lunchHours: round2(totals.lunch),
         overtimeHoursWorked: round2(totals.overtime),
         holidayHours: round2(totals.holiday),
         ptoHours: round2(totals.pto),
