@@ -48,7 +48,7 @@ exports.handler = async (event) => {
     if (myRole.role === 'admin') {
       const { data: rawRoleRow, error: roleRowError } = await supabase
         .from('employee_company_roles')
-        .select('role, foreman_id, employment_start_date, bill_rate, active')
+        .select('role, foreman_id, employment_start_date, bill_rate, display_color, active')
         .eq('employee_id', targetId)
         .eq('company_id', companyId)
         .maybeSingle();
@@ -120,6 +120,7 @@ exports.handler = async (event) => {
           active: target.active,
           employmentStartDate: targetRoleRow.employment_start_date || null,
           billRate: targetRoleRow.bill_rate ? Number(targetRoleRow.bill_rate) : null,
+          displayColor: targetRoleRow.display_color || null,
         },
         currentWeekTotals: {
           regularHoursWorked: round2(totals.regular),
@@ -158,7 +159,7 @@ exports.handler = async (event) => {
 
   let roleQuery = supabase
     .from('employee_company_roles')
-    .select('employee_id, role, foreman_id, employment_start_date, active, employees!employee_company_roles_employee_id_fkey(id, first_name, last_name, phone, active)')
+    .select('employee_id, role, foreman_id, employment_start_date, active, display_color, employees!employee_company_roles_employee_id_fkey(id, first_name, last_name, phone, active)')
     .eq('company_id', companyId);
 
   if (!showInactive) {
@@ -224,6 +225,7 @@ exports.handler = async (event) => {
         foremanId: r.foreman_id || null,
         phone: r.employees.phone,
         roleActive: r.active,
+        displayColor: r.display_color || null,
         currentWeekHours: round2(totals.weekly_total),
         ptoBalance: {
           allotmentHours: balance ? Number(balance.allotment_hours) : 0,
