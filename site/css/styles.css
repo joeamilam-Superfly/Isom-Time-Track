@@ -64,18 +64,6 @@ input, select, textarea {
   font-size: 16px; /* prevents iOS zoom-on-focus */
 }
 
-/* On desktop (900px+), allow the schedule grid to push the page wide */
-@media (min-width: 900px) {
-  html, body {
-    overflow-x: hidden; /* prevent horizontal body scroll */
-  }
-
-  /* Expand #app to full width on the schedule page */
-  #app.schedule-active {
-    max-width: 100%;
-  }
-}
-
 /* ---------- App shell ---------- */
 
 #app {
@@ -496,51 +484,45 @@ main {
     width: 100vw;
     margin-left: calc(-50vw + 50%);
     margin-right: calc(-50vw + 50%);
-    padding: 0 24px;
     box-sizing: border-box;
   }
 
-  /* schedule-sticky-anchor is a direct child of #app — sticky works here */
-  #schedule-sticky-anchor {
-    position: sticky;
-    top: 62px; /* height of topbar */
-    z-index: 9;
-    background: var(--paper);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.06);
-  }
-
-  /* Header sits inside the sticky anchor */
-  .schedule-sticky-header-wrap {
-    overflow: hidden; /* hides scrollbar, JS syncs scroll */
-    background: var(--paper);
-  }
-
-  /* Body scrolls independently — horizontal only */
-  .schedule-body-scroll {
+  /* Single scroll container — overflow-y:auto is what makes sticky work */
+  .schedule-scroll-container {
     overflow-x: auto;
-    overflow-y: visible;
+    overflow-y: auto;
+    max-height: calc(100vh - 220px); /* viewport minus topbar + nav + controls */
+    -webkit-overflow-scrolling: touch;
   }
 
-  /* Both tables share the same column widths */
-  .schedule-header-table,
-  .schedule-body-table {
-    width: 100%;
-    min-width: 900px;
-    table-layout: fixed;
-    border-collapse: collapse;
+  /* Sticky thead inside the scroll container — proven to work */
+  .schedule-sticky-head th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
   }
 
+  /* Second header row sits below first row */
+  .schedule-sticky-head tr:nth-child(2) th {
+    top: 32px;
+  }
+
+  /* Name column sticks to left */
   .schedule-grid-fullwidth th:first-child,
   .schedule-grid-fullwidth td:first-child {
-    width: 160px;
     position: sticky;
     left: 0;
+    z-index: 5;
     background: var(--paper);
+    width: 160px;
+  }
+
+  /* Corner cells need highest z-index */
+  .schedule-sticky-head th:first-child {
+    z-index: 15 !important;
   }
 }
 
-/* Mobile: restore normal flow */
 @media (max-width: 899px) {
-  .schedule-sticky-header-wrap { display: none; }
-  .schedule-body-scroll { overflow: visible; }
+  .schedule-scroll-container { display: none; }
 }
