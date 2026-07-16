@@ -39,7 +39,8 @@ exports.handler = async (event) => {
       if (!eligRow?.queue_eligible && myRole.role === 'employee') {
         return { statusCode: 200, body: JSON.stringify({ workOrders: [] }) };
       }
-      query = query.eq('queue_visible', true).is('assigned_to_id', null).in('status', ['open']);
+      // Queue mode: return ALL unassigned open WOs — no queue_visible gate needed
+      query = query.is('assigned_to_id', null).in('status', ['open']);
     } else if (myRole.role === 'employee') {
       // Employees see WOs assigned to them directly OR where they are crew members
       const { data: crewWos } = await supabase
@@ -370,7 +371,6 @@ exports.handler = async (event) => {
     // ---- grab from queue (employee self-assigns) ----
     if (action === 'grab') {
       if (wo.assigned_to_id) return { statusCode: 409, body: JSON.stringify({ error: 'This work order was just grabbed by someone else.' }) };
-      if (!wo.queue_visible) return { statusCode: 409, body: JSON.stringify({ error: 'This work order is not in the queue.' }) };
       const { error } = await supabase.from('work_orders')
         .update({ assigned_to_id: auth.employeeId, self_assigned_at: new Date().toISOString(), queue_visible: false, updated_at: new Date().toISOString() })
         .eq('id', workOrderId).is('assigned_to_id', null);
@@ -388,17 +388,6 @@ exports.handler = async (event) => {
         .eq('id', workOrderId);
       if (error) return errorResponse(error);
       return { statusCode: 200, body: JSON.stringify({ ok: true }) };
-    }
-
-    // ---- toggle_queue_visible (admin/foreman only) ----
-    if (action === 'toggle_queue_visible') {
-      if (myRole.role === 'employee') return forbidden('Only foremen and admins can manage the queue');
-      const newVal = !wo.queue_visible;
-      const { error } = await supabase.from('work_orders')
-        .update({ queue_visible: newVal, updated_at: new Date().toISOString() })
-        .eq('id', workOrderId);
-      if (error) return errorResponse(error);
-      return { statusCode: 200, body: JSON.stringify({ ok: true, queueVisible: newVal }) };
     }
 
     // ---- reopen (foreman/admin only, only from ready_to_bill — not after billing) ----
