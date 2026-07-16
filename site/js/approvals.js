@@ -1003,6 +1003,7 @@ async function renderApprovalDetail(opts) {
 
       <div class="summary-card" style="margin-bottom:20px;">
         <div class="summary-row"><span class="label">Regular</span><span class="value">${s.totals.regularHoursWorked.toFixed(2)}h</span></div>
+        ${(s.totals.lunchHours || 0) > 0 ? `<div class="summary-row"><span class="label" style="display:flex;flex-direction:column;gap:2px;"><span>Paid lunch</span><span style="font-size:11px;opacity:0.5;font-weight:400;">Does not push into overtime</span></span><span class="value">${(s.totals.lunchHours).toFixed(2)}h</span></div>` : ''}
         <div class="summary-row"><span class="label">Overtime</span><span class="value">${s.totals.overtimeHoursWorked.toFixed(2)}h</span></div>
         <div class="summary-row"><span class="label">Holiday</span><span class="value">${s.totals.holidayHours.toFixed(2)}h</span></div>
         <div class="summary-row"><span class="label">Leave</span><span class="value">${s.totals.ptoHours.toFixed(2)}h</span></div>
