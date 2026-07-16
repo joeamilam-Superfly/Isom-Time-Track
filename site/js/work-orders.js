@@ -146,9 +146,10 @@ function workOrderCardHtml(wo, myRole) {
   const canBillCard = myRole === 'admin' && wo.status === 'ready_to_bill';
   const canManage = myRole === 'admin' || myRole === 'foreman';
   const pendingReview = wo.status === 'submitted' && (myRole === 'admin' || myRole === 'foreman');
+  const cardBg = wo.assignedTo?.displayColor || 'var(--paper)';
 
   return `
-    <div class="day-stub" style="margin-bottom:10px;">
+    <div class="day-stub" style="margin-bottom:10px; background:${cardBg}; border-radius:8px; overflow:hidden;">
       <div class="day-stub-perf" style="background:${statusColor};"></div>
       <div class="day-stub-body">
         <div class="day-stub-top">
