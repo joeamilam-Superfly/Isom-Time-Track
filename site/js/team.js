@@ -444,6 +444,17 @@ async function showEditProfileDialog(employee) {
         <div class="screen-sub">Used to calculate budget burn against job locations. Not visible to the employee.</div>
       </div>
 
+      <div class="field">
+        <label>Work order card color</label>
+        <div class="screen-sub" style="margin-bottom:8px;">Color used to identify this employee on work order cards. Tap to choose.</div>
+        <div id="color-picker-grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
+          ${['#dbeafe','#d1fae5','#fef3c7','#e0e7ff','#ccfbf1','#ede9fe','#ffedd5','#cffafe','#f0fdf4','#fef9c3','#f1f5f9','#e7e5e4','#ecfdf5','#eff6ff','#f5f3ff','#fff7ed','#ecfeff','#f0fdfa','#fef08a','#a7f3d0'].map(c => `
+            <div data-color="${c}" style="width:32px;height:32px;border-radius:6px;background:${c};cursor:pointer;border:2px solid ${(employee.displayColor||'#dbeafe')===c?'#1a1a1a':'rgba(0,0,0,0.15)'};box-sizing:border-box;" title="${c}"></div>
+          `).join('')}
+        </div>
+        <input type="hidden" id="edit-display-color" value="${employee.displayColor || '#dbeafe'}" />
+      </div>
+
       <div id="pto-calc-section" style="display:none; background:var(--paper-dim); border-radius:8px; padding:14px; margin-top:4px;">
         <div style="font-size:13px; font-weight:600; margin-bottom:10px;" id="pto-calc-label"></div>
         <div class="field">
@@ -465,6 +476,18 @@ async function showEditProfileDialog(employee) {
     </div>
   `;
   document.body.appendChild(overlay);
+
+  // Wire color picker swatches
+  overlay.querySelectorAll('[data-color]').forEach(swatch => {
+    swatch.addEventListener('click', () => {
+      const color = swatch.getAttribute('data-color');
+      overlay.querySelector('#edit-display-color').value = color;
+      overlay.querySelectorAll('[data-color]').forEach(s => {
+        s.style.border = s.getAttribute('data-color') === color
+          ? '2px solid #1a1a1a' : '2px solid rgba(0,0,0,0.15)';
+      });
+    });
+  });
 
   // Same accrual rules as scheduled-pto-accrual.js - must stay in sync.
   function calcAllotmentHours(startDateStr) {
@@ -521,6 +544,7 @@ async function showEditProfileDialog(employee) {
     const employmentStartDate = document.getElementById('edit-start-date').value || undefined;
     const billRateInput = document.getElementById('edit-bill-rate').value;
     const billRate = billRateInput ? Number(billRateInput) : undefined;
+    const displayColor = document.getElementById('edit-display-color').value || undefined;
     const errorEl = document.getElementById('edit-profile-error');
     errorEl.innerHTML = '';
 
@@ -551,6 +575,7 @@ async function showEditProfileDialog(employee) {
           foremanId,
           employmentStartDate,
           billRate,
+          displayColor,
         }),
       });
 
