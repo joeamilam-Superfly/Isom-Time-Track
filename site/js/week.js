@@ -211,6 +211,7 @@ function topbarHtml() {
         <img src="${logoSrc}" alt="${logoAlt}" style="height:${logoHeight}; width:auto; display:block; ${isSouthPointe ? 'background:#fff; border-radius:4px; padding:3px 8px;' : ''}" />
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
+        <button class="user-chip" id="refresh-btn" style="border:none; font-size:16px;" aria-label="Refresh">&#8635;</button>
         <button class="user-chip" id="help-btn" style="border:none;" aria-label="Help">&#128172;</button>
         <button class="user-chip" id="logout-btn" style="border:none;">${initials} &middot; Log out</button>
       </div>
@@ -232,11 +233,19 @@ function attachTopbarHandlers() {
   const helpBtn = document.getElementById('help-btn');
   if (helpBtn) helpBtn.addEventListener('click', openAssistantPanel);
 
+  const refreshBtn = document.getElementById('refresh-btn');
+  if (refreshBtn) refreshBtn.addEventListener('click', () => {
+    if (document.querySelector('.overlay-dialog, [data-overlay]') || document.querySelectorAll('[style*="position:fixed"]').length > 1) return;
+    const btnEl = document.getElementById('refresh-btn');
+    if (btnEl) { btnEl.style.transition = 'transform 0.5s ease'; btnEl.style.transform = 'rotate(360deg)'; setTimeout(() => { btnEl.style.transform = ''; btnEl.style.transition = ''; }, 500); }
+    render(state.view);
+  });
+
   const switcher = document.getElementById('company-switcher');
   if (switcher) {
     switcher.addEventListener('change', () => {
       setActiveCompany(switcher.value);
-      render('week'); // switching companies always lands back on the main week view
+      render('week');
     });
   }
 }
