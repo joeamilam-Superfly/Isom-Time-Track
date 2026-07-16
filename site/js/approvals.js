@@ -545,6 +545,7 @@ async function loadWorkOrdersSection() {
         <option value="newest">Newest first</option>
         <option value="due_date">By due date</option>
         <option value="employee">By employee</option>
+        <option value="unassigned">Unassigned only</option>
       </select>
     </div>
     <div id="wo-list-content">${loadingHtml()}</div>
@@ -598,7 +599,9 @@ async function loadWorkOrdersSection() {
         wo.details?.toLowerCase().includes(q)
       ) : wos;
 
-      if (sort === 'due_date') {
+      if (sort === 'unassigned') {
+        filtered = filtered.filter(wo => !wo.assignedTo);
+      } else if (sort === 'due_date') {
         filtered = [...filtered].sort((a, b) => {
           if (!a.scheduledDate && !b.scheduledDate) return 0;
           if (!a.scheduledDate) return 1;
@@ -647,6 +650,20 @@ async function loadWorkOrdersSection() {
         const wo = allWos.find(w => w.id === btn.getAttribute('data-wo-edit'));
         if (wo) btn.addEventListener('click', () => showEditWorkOrderDialog(wo));
       });
+      woContent.querySelectorAll('[data-wo-queue-toggle]').forEach(btn => {
+        const wo = allWos.find(w => w.id === btn.getAttribute('data-wo-queue-toggle'));
+        if (wo) btn.addEventListener('click', async () => {
+          await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'toggle_queue_visible' }) });
+          loadWorkOrdersSection();
+        });
+      });
+      woContent.querySelectorAll('[data-wo-return-queue]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Return this work order to the unassigned queue?')) return;
+          await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: btn.getAttribute('data-wo-return-queue'), action: 'return_to_queue' }) });
+          loadWorkOrdersSection();
+        });
+      });
     }
 
     // Wire search and sort
@@ -656,6 +673,59 @@ async function loadWorkOrdersSection() {
     if (sortSel) sortSel.addEventListener('change', renderWoList);
 
     renderWoList();
+
+    // --- Queue section: show unassigned queue to eligible employees + all foremen/admins ---
+    const queueData = await api(withCompany('/work-orders?queue=true')).catch(() => ({ workOrders: [] }));
+    const queueWos = queueData.workOrders || [];
+    const woSection = document.getElementById('wo-section');
+    if (woSection && (queueWos.length > 0 || myRole === 'admin' || myRole === 'foreman')) {
+      const queueEl = document.createElement('div');
+      queueEl.style.cssText = 'margin-top:20px; border-top:2px solid var(--amber); padding-top:14px;';
+      queueEl.innerHTML = `
+        <div style="font-weight:700; font-size:16px; margin-bottom:4px;">📋 Available Work Orders</div>
+        <div class="screen-sub" style="margin-bottom:10px;">Unassigned — first to grab it gets it. Auto-returns after 24h with no hours logged.</div>
+        ${queueWos.length === 0
+          ? `<div class="screen-sub">No work orders in the queue right now.</div>`
+          : queueWos.map(wo => `
+            <div class="day-stub" style="margin-bottom:10px; background:#fef3c7; border-radius:8px; overflow:hidden;">
+              <div class="day-stub-perf" style="background:#d97706;"></div>
+              <div class="day-stub-body">
+                <div class="day-stub-top">
+                  <div class="day-stub-date">WO# ${escapeHtml(wo.woNumber)}</div>
+                  <div style="font-size:11px; font-weight:700; color:#d97706;">📋 Queue</div>
+                </div>
+                <div class="day-stub-meta">
+                  ${wo.jobLocation ? `<span>${escapeHtml(wo.jobLocation.name)}</span>` : ''}
+                  ${wo.scheduledDate ? `<span>Due: ${wo.scheduledDate}</span>` : ''}
+                </div>
+                ${wo.details ? `<div style="font-size:11px; white-space:pre-line; background:rgba(0,0,0,0.04); border-radius:4px; padding:6px 8px; margin-top:4px;">${escapeHtml(wo.details)}</div>` : ''}
+                <div style="display:flex; gap:8px; margin-top:8px;">
+                  <button class="btn btn-sm btn-ghost" data-queue-view="${wo.id}">View details</button>
+                  <button class="btn btn-sm btn-primary" style="background:#d97706;" data-queue-grab="${wo.id}">Grab this WO</button>
+                </div>
+              </div>
+            </div>`).join('')}
+      `;
+      woSection.appendChild(queueEl);
+
+      queueEl.querySelectorAll('[data-queue-view]').forEach(btn => {
+        btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-queue-view'), queueWos));
+      });
+      queueEl.querySelectorAll('[data-queue-grab]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          btn.textContent = 'Grabbing...';
+          try {
+            await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: btn.getAttribute('data-queue-grab'), action: 'grab' }) });
+            loadWorkOrdersSection();
+          } catch (err) {
+            alert(err.message);
+            btn.disabled = false;
+            btn.textContent = 'Grab this WO';
+          }
+        });
+      });
+    }
   } catch (err) {
     const woContent = document.getElementById('wo-list-content');
     if (woContent) woContent.innerHTML = errorHtml(err.message);
