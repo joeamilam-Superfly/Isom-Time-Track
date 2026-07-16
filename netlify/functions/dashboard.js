@@ -159,7 +159,7 @@ exports.handler = async (event) => {
 
   let roleQuery = supabase
     .from('employee_company_roles')
-    .select('employee_id, role, foreman_id, employment_start_date, active, display_color, employees!employee_company_roles_employee_id_fkey(id, first_name, last_name, phone, active)')
+    .select('employee_id, role, foreman_id, employment_start_date, active, display_color, queue_eligible, employees!employee_company_roles_employee_id_fkey(id, first_name, last_name, phone, active)')
     .eq('company_id', companyId);
 
   if (!showInactive) {
@@ -226,6 +226,7 @@ exports.handler = async (event) => {
         phone: r.employees.phone,
         roleActive: r.active,
         displayColor: r.display_color || null,
+        queueEligible: r.queue_eligible || false,
         currentWeekHours: round2(totals.weekly_total),
         ptoBalance: {
           allotmentHours: balance ? Number(balance.allotment_hours) : 0,
