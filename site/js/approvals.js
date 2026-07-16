@@ -415,29 +415,35 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
 
     <!-- DESKTOP VIEW -->
     <div class="schedule-grid-fullwidth">
-      <table style="width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed;">
-        <thead class="schedule-sticky-head">
-          <tr>
-            <th style="text-align:left; padding:6px 8px; border-bottom:2px solid var(--line); position:sticky; left:0; background:var(--paper); width:130px;"></th>
-            ${weekMeta.map((wk, wi) => `
-              <th colspan="7" style="text-align:center; padding:4px 6px; border-bottom:2px solid var(--line); ${wi>0?'border-left:2px solid var(--amber);':''} background:${wi===0?'var(--line)':'var(--paper-dim)'}; font-size:11px; font-weight:700; opacity:${wi===0?'0.7':'1'};">
-                ${wk.label} &nbsp;<span style="font-weight:400;">${weekLabel(wk.days)}</span>
-              </th>`).join('')}
-          </tr>
-          <tr>
-            <th style="position:sticky; left:0; background:var(--paper); border-bottom:1px solid var(--line); padding:4px 8px; font-size:11px; color:var(--ink-soft);">Name</th>
-            ${allDays.map((d, i) => {
-              const isWknd = isWeekendDate(d);
-              const isPrior = priorDaySet.has(d);
-              return `<th style="text-align:left; padding:3px 3px; border-bottom:1px solid var(--line); font-size:10px; font-weight:600; ${i===7||i===14?'border-left:2px solid var(--amber);':''} background:${isWknd?'#f5f0e8':'var(--paper)'}; ${isPrior?'opacity:0.7;':''}">
-                ${new Date(d+'T00:00:00').toLocaleDateString('en-US',{weekday:'short'})}<br>
-                <span style="font-weight:400; color:var(--ink-soft);">${d.slice(5)}</span>
-              </th>`;
-            }).join('')}
-          </tr>
-        </thead>
-        <tbody>${sections}${unassignedSection}</tbody>
-      </table>
+      <div class="schedule-sticky-header-wrap">
+        <table class="schedule-header-table" style="width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed;">
+          <thead>
+            <tr>
+              <th style="text-align:left; padding:6px 8px; border-bottom:2px solid var(--line); background:var(--paper); width:160px;"></th>
+              ${weekMeta.map((wk, wi) => `
+                <th colspan="7" style="text-align:center; padding:4px 6px; border-bottom:2px solid var(--line); ${wi>0?'border-left:2px solid var(--amber);':''} background:${wi===0?'var(--line)':'var(--paper-dim)'}; font-size:11px; font-weight:700; opacity:${wi===0?'0.7':'1'};">
+                  ${wk.label} &nbsp;<span style="font-weight:400;">${weekLabel(wk.days)}</span>
+                </th>`).join('')}
+            </tr>
+            <tr>
+              <th style="background:var(--paper); border-bottom:1px solid var(--line); padding:4px 8px; font-size:11px; color:var(--ink-soft); width:160px;">Name</th>
+              ${allDays.map((d, i) => {
+                const isWknd = isWeekendDate(d);
+                const isPrior = priorDaySet.has(d);
+                return `<th style="text-align:left; padding:3px 3px; border-bottom:1px solid var(--line); font-size:10px; font-weight:600; ${i===7||i===14?'border-left:2px solid var(--amber);':''} background:${isWknd?'#f5f0e8':'var(--paper)'}; ${isPrior?'opacity:0.7;':''}">
+                  ${new Date(d+'T00:00:00').toLocaleDateString('en-US',{weekday:'short'})}<br>
+                  <span style="font-weight:400; color:var(--ink-soft);">${d.slice(5)}</span>
+                </th>`;
+              }).join('')}
+            </tr>
+          </thead>
+        </table>
+      </div>
+      <div class="schedule-body-scroll">
+        <table class="schedule-body-table" style="width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed;">
+          <tbody>${sections}${unassignedSection}</tbody>
+        </table>
+      </div>
     </div>
   `;
 
@@ -489,6 +495,15 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
       if (diff < 0 && mobileWeekIdx > 0) renderMobileWeek(mobileWeekIdx - 1);
     }
   }, { passive: true });
+
+  // Sync horizontal scroll: when body scrolls left/right, header follows
+  const headerWrap = listEl.querySelector('.schedule-sticky-header-wrap');
+  const bodyScroll = listEl.querySelector('.schedule-body-scroll');
+  if (headerWrap && bodyScroll) {
+    bodyScroll.addEventListener('scroll', () => {
+      headerWrap.scrollLeft = bodyScroll.scrollLeft;
+    });
+  }
 
   // Desktop cell click handlers
   listEl.querySelectorAll('.schedule-grid-fullwidth [data-grid-cell]').forEach(cell => {
