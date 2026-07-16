@@ -193,3 +193,68 @@ function boot() {
 }
 
 window.addEventListener('DOMContentLoaded', boot);
+
+// ---- Tab focus refresh ----
+// When user returns to the tab after 5+ minutes away, silently refresh
+// the current view — but only if no dialog/overlay is open.
+let lastActiveTime = Date.now();
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    lastActiveTime = Date.now();
+  } else {
+    const awayMs = Date.now() - lastActiveTime;
+    const fiveMinutes = 5 * 60 * 1000;
+    if (awayMs >= fiveMinutes && state.token && state.view && state.view !== 'login') {
+      // Only refresh if no overlay/dialog is open
+      const overlays = document.querySelectorAll('[style*="position:fixed"]');
+      if (overlays.length <= 1) { // 1 = the topbar itself may be fixed
+        render(state.view);
+      }
+    }
+  }
+});
+
+// ---- Pull to refresh (mobile) ----
+// Swipe down from top of page triggers a refresh.
+// Guarded against dialogs and mid-scroll pulls.
+(function initPullToRefresh() {
+  let startY = 0;
+  let isPulling = false;
+  let indicator = null;
+
+  function isDialogOpen() {
+    return document.querySelectorAll('[style*="position:fixed"]').length > 1;
+  }
+
+  document.addEventListener('touchstart', (e) => {
+    if (isDialogOpen()) return;
+    if (window.scrollY === 0) {
+      startY = e.touches[0].clientY;
+      isPulling = true;
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!isPulling || isDialogOpen()) return;
+    const pullDistance = e.touches[0].clientY - startY;
+    if (pullDistance > 10 && pullDistance < 80) {
+      if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999;text-align:center;padding:8px;font-size:13px;color:#C47C1E;background:rgba(255,255,255,0.95);transition:opacity 0.2s;';
+        indicator.textContent = '↓ Pull to refresh';
+        document.body.appendChild(indicator);
+      }
+      indicator.textContent = pullDistance > 55 ? '↑ Release to refresh' : '↓ Pull to refresh';
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', (e) => {
+    if (!isPulling || isDialogOpen()) { isPulling = false; return; }
+    const pullDistance = e.changedTouches[0].clientY - startY;
+    if (indicator) { document.body.removeChild(indicator); indicator = null; }
+    isPulling = false;
+    if (pullDistance > 55 && state.token && state.view && state.view !== 'login') {
+      render(state.view);
+    }
+  });
+})();
