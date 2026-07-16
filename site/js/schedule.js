@@ -7,58 +7,122 @@ async function showUpcomingScheduleDialog() {
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:flex-end;justify-content:center;z-index:150;';
   overlay.innerHTML = `
-    <div style="background:#fff;border-radius:16px 16px 0 0;width:100%;max-width:480px;max-height:80vh;display:flex;flex-direction:column;">
-      <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 18px; border-bottom:1px solid var(--line);">
-        <div style="font-weight:700; font-size:16px;">My Schedule</div>
-        <button id="schedule-dialog-close" style="background:none; border:none; font-size:22px; line-height:1; cursor:pointer; color:var(--ink-soft); padding:4px 8px;">&times;</button>
+    <div style="background:#fff;border-radius:16px 16px 0 0;width:100%;max-width:480px;max-height:82vh;display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line);">
+        <div style="font-weight:700;font-size:16px;">My Work Orders</div>
+        <button id="schedule-dialog-close" style="background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--ink-soft);padding:4px 8px;">&times;</button>
       </div>
-      <div id="upcoming-schedule-list" style="flex:1; overflow-y:auto; padding:16px 18px;">${loadingHtml()}</div>
+      <div id="upcoming-schedule-list" style="flex:1;overflow-y:auto;padding:16px 18px;">${loadingHtml()}</div>
     </div>
   `;
   document.body.appendChild(overlay);
-  document.getElementById('schedule-dialog-close').addEventListener('click', () => document.body.removeChild(overlay));
+
+  const close = () => { if (document.body.contains(overlay)) document.body.removeChild(overlay); };
+  overlay.querySelector('#schedule-dialog-close').addEventListener('click', close);
 
   try {
-    const startDate = todayStr();
-    const endDate = addDaysStr(startDate, 27); // 4 weeks out, "however far out it goes" within a reasonable, bounded window
-    const data = await api(withCompany(`/schedule?employeeId=${state.employee.id}&startDate=${startDate}&endDate=${endDate}`));
-    renderUpcomingScheduleList(data.entries || []);
+    // Fetch open WOs assigned to this employee plus crew WOs
+    const [openData, billedData, queueData] = await Promise.all([
+      api(withCompany('/work-orders?status=open')).catch(() => ({ workOrders: [] })),
+      api(withCompany('/work-orders?status=ready_to_bill')).catch(() => ({ workOrders: [] })),
+      api(withCompany('/work-orders?queue=true')).catch(() => ({ workOrders: [] })),
+    ]);
+
+    const assignedWos = [
+      ...(openData.workOrders || []),
+      ...(billedData.workOrders || []),
+    ].filter(wo =>
+      wo.assignedTo?.id === state.employee.id ||
+      (wo.crew || []).some(c => c.id === state.employee.id)
+    );
+
+    const queueWos = (queueData.workOrders || []);
+    const allWos = [...assignedWos, ...queueWos];
+
+    const listEl = overlay.querySelector('#upcoming-schedule-list');
+
+    if (assignedWos.length === 0 && queueWos.length === 0) {
+      listEl.innerHTML = `<div class="empty-state"><div class="icon">📋</div>No work orders assigned to you right now.</div>`;
+      return;
+    }
+
+    const statusColor = { open: '#C47C1E', submitted: '#7c3aed', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)' };
+    const statusLabel = { open: 'Open', submitted: 'Pending review', ready_to_bill: 'Ready to bill', billed: 'Billed' };
+    const myRole = currentCompanyRole();
+
+    function woCardHtml(wo, isQueue) {
+      const isCrewMember = !isQueue && (wo.crew || []).some(c => c.id === state.employee.id) && wo.assignedTo?.id !== state.employee.id;
+      const bg = isQueue ? '#fef3c7' : (wo.assignedTo?.displayColor || 'var(--paper)');
+      return `
+        <div style="background:${bg};border-radius:8px;padding:12px 14px;margin-bottom:10px;border:1px solid var(--line);">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
+            <div style="font-weight:700;font-size:15px;">WO# ${escapeHtml(wo.woNumber)}</div>
+            <span style="font-size:12px;font-weight:600;color:${isQueue ? '#d97706' : (statusColor[wo.status] || 'var(--ink-soft))')};">${isQueue ? '📋 Available' : (statusLabel[wo.status] || wo.status)}</span>
+          </div>
+          ${wo.jobLocation ? `<div style="font-size:13px;color:var(--ink-soft);margin-bottom:2px;">${escapeHtml(wo.jobLocation.name)}</div>` : ''}
+          ${isCrewMember ? `<div style="font-size:11px;color:var(--ink-soft);margin-bottom:4px;">You are on the crew — lead: ${escapeHtml(wo.assignedTo?.name || '')}</div>` : ''}
+          ${wo.scheduledDate ? `<div style="font-size:12px;color:var(--ink-soft);">Scheduled: ${wo.scheduledDate}</div>` : ''}
+          ${wo.details ? `<div style="font-size:12px;background:rgba(0,0,0,0.04);border-radius:4px;padding:6px 8px;margin-top:6px;white-space:pre-line;">${escapeHtml(wo.details.slice(0, 120))}${wo.details.length > 120 ? '…' : ''}</div>` : ''}
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-ghost" data-wo-view-id="${wo.id}" style="font-size:12px;">View WO</button>
+            ${isQueue ? `<button class="btn btn-sm btn-primary" data-wo-grab-id="${wo.id}" style="background:#d97706;font-size:12px;">Grab this WO</button>` : ''}
+            ${!isQueue && myRole !== 'employee' ? `<button class="btn btn-sm btn-ghost" data-wo-edit-id="${wo.id}" style="font-size:12px;">Edit</button>` : ''}
+          </div>
+        </div>`;
+    }
+
+    let html = '';
+    if (assignedWos.length > 0) {
+      html += `<div style="font-weight:700;font-size:13px;color:var(--ink-soft);margin-bottom:8px;">MY ASSIGNED WOs (${assignedWos.length})</div>`;
+      html += assignedWos.map(wo => woCardHtml(wo, false)).join('');
+    }
+    if (queueWos.length > 0) {
+      html += `<div style="font-weight:700;font-size:13px;color:#d97706;margin:${assignedWos.length > 0 ? '16px' : '0px'} 0 8px;">📋 AVAILABLE TO GRAB (${queueWos.length})</div>`;
+      html += queueWos.map(wo => woCardHtml(wo, true)).join('');
+    }
+    listEl.innerHTML = html;
+
+    // Wire view buttons
+    listEl.querySelectorAll('[data-wo-view-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        close();
+        showWorkOrderDetail(btn.getAttribute('data-wo-view-id'), allWos);
+      });
+    });
+
+    // Wire edit buttons (foreman/admin only)
+    listEl.querySelectorAll('[data-wo-edit-id]').forEach(btn => {
+      const wo = assignedWos.find(w => w.id === btn.getAttribute('data-wo-edit-id'));
+      if (wo) btn.addEventListener('click', () => {
+        close();
+        showEditWorkOrderDialog(wo);
+      });
+    });
+
+    // Wire grab buttons (queue WOs)
+    listEl.querySelectorAll('[data-wo-grab-id]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = 'Grabbing...';
+        try {
+          await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: btn.getAttribute('data-wo-grab-id'), action: 'grab' }) });
+          close();
+          render(state.view);
+        } catch (err) {
+          alert(err.message);
+          btn.disabled = false;
+          btn.textContent = 'Grab this WO';
+        }
+      });
+    });
+
   } catch (err) {
-    document.getElementById('upcoming-schedule-list').innerHTML = errorHtml(err.message);
+    const listEl = overlay.querySelector('#upcoming-schedule-list');
+    if (listEl) listEl.innerHTML = errorHtml(err.message);
   }
 }
 
-function renderUpcomingScheduleList(entries) {
-  const el = document.getElementById('upcoming-schedule-list');
-  if (entries.length === 0) {
-    el.innerHTML = `<div class="empty-state"><div class="icon">&#128197;</div>No upcoming schedule has been entered yet.</div>`;
-    return;
-  }
 
-  const byDate = {};
-  for (const e of entries) {
-    if (!byDate[e.scheduled_date]) byDate[e.scheduled_date] = [];
-    byDate[e.scheduled_date].push(e);
-  }
-
-  el.innerHTML = Object.entries(byDate).map(([date, dayEntries]) => `
-    <div class="day-stub">
-      <div class="day-stub-perf"></div>
-      <div class="day-stub-body">
-        <div class="day-stub-top">
-          <div class="day-stub-date">${formatDateLabel(date)}${date === todayStr() ? ' &middot; Today' : ''}</div>
-        </div>
-        <div class="day-stub-meta">
-          ${dayEntries.map(e => {
-            const loc = e.job_locations ? escapeHtml(e.job_locations.name) : 'No location set';
-            const note = e.note ? ` &mdash; ${escapeHtml(e.note)}` : '';
-            return `<span>${loc}${note}</span>`;
-          }).join('')}
-        </div>
-      </div>
-    </div>
-  `).join('');
-}
 
 // Checks for any unacknowledged schedule changes for the current
 // employee at the active company, and if any exist, shows a blocking
