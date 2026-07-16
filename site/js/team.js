@@ -452,6 +452,9 @@ async function showEditProfileDialog(employee) {
         </label>
         <div class="screen-sub">When enabled, this employee sees the Available Work Orders queue and can self-assign open WOs.</div>
       </div>
+
+      <div class="field">
+        <label>Work order card color</label>
         <div class="screen-sub" style="margin-bottom:8px;">Color used to identify this employee on work order cards. Tap to choose.</div>
         <div id="color-picker-grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
           ${['#dbeafe','#d1fae5','#fef3c7','#e0e7ff','#ccfbf1','#ede9fe','#ffedd5','#cffafe','#f0fdf4','#fef9c3','#f1f5f9','#e7e5e4','#ecfdf5','#eff6ff','#f5f3ff','#fff7ed','#ecfeff','#f0fdfa','#fef08a','#a7f3d0'].map(c => `
