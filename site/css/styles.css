@@ -500,14 +500,19 @@ main {
     box-sizing: border-box;
   }
 
-  /* Header sits outside the scroll container — sticks to top of viewport */
-  .schedule-sticky-header-wrap {
+  /* schedule-sticky-anchor is a direct child of #app — sticky works here */
+  #schedule-sticky-anchor {
     position: sticky;
-    top: 0;
-    z-index: 20;
+    top: 62px; /* height of topbar */
+    z-index: 9;
     background: var(--paper);
-    overflow: hidden; /* hides scrollbar but syncs scroll via JS */
     box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+  }
+
+  /* Header sits inside the sticky anchor */
+  .schedule-sticky-header-wrap {
+    overflow: hidden; /* hides scrollbar, JS syncs scroll */
+    background: var(--paper);
   }
 
   /* Body scrolls independently — horizontal only */
