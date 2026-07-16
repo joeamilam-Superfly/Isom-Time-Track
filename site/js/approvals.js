@@ -17,9 +17,8 @@ async function renderApprovals(opts) {
         <button class="nav-tab ${subView === 'schedule' ? 'active' : ''}" data-subview="schedule">Schedule</button>
       </div>
       ${subView === 'schedule' ? weekJumpDropdownHtml(weekOf, 0, 6) : weekJumpDropdownHtml(weekOf, 8, 1)}
+      <div id="approvals-list">${loadingHtml()}</div>
     </main>
-    <div id="schedule-sticky-anchor"></div>
-    <div id="approvals-list" style="padding:0 18px 100px;">${loadingHtml()}</div>
   `;
 
   attachTopbarHandlers();
@@ -416,9 +415,9 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
 
     <!-- DESKTOP VIEW -->
     <div class="schedule-grid-fullwidth">
-      <div class="schedule-sticky-header-wrap">
-        <table class="schedule-header-table" style="width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed;">
-          <thead>
+      <div class="schedule-scroll-container">
+        <table style="width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed; min-width:900px;">
+          <thead class="schedule-sticky-head">
             <tr>
               <th style="text-align:left; padding:6px 8px; border-bottom:2px solid var(--line); background:var(--paper); width:160px;"></th>
               ${weekMeta.map((wk, wi) => `
@@ -438,10 +437,6 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
               }).join('')}
             </tr>
           </thead>
-        </table>
-      </div>
-      <div class="schedule-body-scroll">
-        <table class="schedule-body-table" style="width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed;">
           <tbody>${sections}${unassignedSection}</tbody>
         </table>
       </div>
@@ -496,25 +491,6 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
       if (diff < 0 && mobileWeekIdx > 0) renderMobileWeek(mobileWeekIdx - 1);
     }
   }, { passive: true });
-
-  document.getElementById('app').classList.add('schedule-active');
-
-  // Move sticky header into #schedule-sticky-anchor — a direct child of #app
-  // so position:sticky works relative to the page scroll, not a nested container
-  const anchorEl = document.getElementById('schedule-sticky-anchor');
-  if (anchorEl) {
-    const stickyWrap = listEl.querySelector('.schedule-sticky-header-wrap');
-    if (stickyWrap) anchorEl.appendChild(stickyWrap);
-  }
-
-  // Sync horizontal scroll: body scrolls → header follows
-  const headerWrap = document.querySelector('#schedule-sticky-anchor .schedule-sticky-header-wrap');
-  const bodyScroll = listEl.querySelector('.schedule-body-scroll');
-  if (headerWrap && bodyScroll) {
-    bodyScroll.addEventListener('scroll', () => {
-      headerWrap.scrollLeft = bodyScroll.scrollLeft;
-    });
-  }
 
   // Desktop cell click handlers
   listEl.querySelectorAll('.schedule-grid-fullwidth [data-grid-cell]').forEach(cell => {
