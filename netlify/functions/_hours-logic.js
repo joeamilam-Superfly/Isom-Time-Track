@@ -181,6 +181,7 @@ function classifyWeek(entries) {
       overtime_hours: bucket === 'split' ? otPortion : (bucket === 'overtime' ? payableHours : 0),
       holiday_hours: bucket === 'holiday' ? payableHours : 0,
       pto_hours: bucket === 'pto' ? payableHours : 0,
+      is_lunch: isBreak,
     });
   }
 
@@ -189,10 +190,12 @@ function classifyWeek(entries) {
     acc.overtime += r.overtime_hours;
     acc.holiday += r.holiday_hours;
     acc.pto += r.pto_hours;
+    acc.lunch += r.is_lunch ? r.regular_hours : 0;
     return acc;
-  }, { regular: 0, overtime: 0, holiday: 0, pto: 0 });
+  }, { regular: 0, overtime: 0, holiday: 0, pto: 0, lunch: 0 });
 
   totals.weekly_total = totals.regular + totals.overtime + totals.holiday + totals.pto;
+  totals.regular_ex_lunch = Math.max(0, totals.regular - totals.lunch);
 
   return { entries: results, totals };
 }
