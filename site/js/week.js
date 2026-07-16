@@ -84,10 +84,19 @@ async function renderWeek(opts) {
 }
 
 function renderWeekSummary(summary) {
-  const t = summary ? summary.totals : { regularHoursWorked: 0, overtimeHoursWorked: 0, holidayHours: 0, ptoHours: 0, weeklyHours: 0 };
+  const t = summary ? summary.totals : { regularHoursWorked: 0, lunchHours: 0, overtimeHoursWorked: 0, holidayHours: 0, ptoHours: 0, weeklyHours: 0 };
+  const lunchHours = t.lunchHours || 0;
   document.getElementById('week-summary').innerHTML = `
     <div class="summary-card">
       <div class="summary-row"><span class="label">Regular hours worked</span><span class="value">${t.regularHoursWorked.toFixed(2)}</span></div>
+      ${lunchHours > 0 ? `
+      <div class="summary-row">
+        <span class="label" style="display:flex;flex-direction:column;gap:2px;">
+          <span>Paid lunch hours</span>
+          <span style="font-size:11px;opacity:0.5;font-weight:400;">Lunch hrs. do not push you into overtime</span>
+        </span>
+        <span class="value">${lunchHours.toFixed(2)}</span>
+      </div>` : ''}
       <div class="summary-row"><span class="label">Overtime hours worked</span><span class="value">${t.overtimeHoursWorked.toFixed(2)}</span></div>
       <div class="summary-row"><span class="label">Holiday hours</span><span class="value">${t.holidayHours.toFixed(2)}</span></div>
       <div class="summary-row"><span class="label">Leave hours</span><span class="value">${t.ptoHours.toFixed(2)}</span></div>
