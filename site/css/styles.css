@@ -438,11 +438,6 @@ main {
 }
 
 /* Schedule grid sticky headers — desktop only */
-@media (max-width: 899px) {
-  .schedule-sticky-head th {
-    position: static !important;
-  }
-}
 
 .employee-row {
   display: flex;
@@ -483,6 +478,7 @@ main {
 
 @media (min-width: 900px) {
   .schedule-mobile-view { display: none; }
+
   .schedule-grid-fullwidth {
     display: block;
     width: 100vw;
@@ -490,49 +486,44 @@ main {
     margin-right: calc(-50vw + 50%);
     padding: 0 24px;
     box-sizing: border-box;
+  }
+
+  /* Header sits outside the scroll container — sticks to top of viewport */
+  .schedule-sticky-header-wrap {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--paper);
+    overflow: hidden; /* hides scrollbar but syncs scroll via JS */
+    box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+  }
+
+  /* Body scrolls independently — horizontal only */
+  .schedule-body-scroll {
     overflow-x: auto;
     overflow-y: visible;
   }
 
-  /* Sticky thead requires the scroll container to use overflow-x only.
-     We achieve this by setting overflow-y: visible so sticky top works. */
-  .schedule-grid-fullwidth table {
+  /* Both tables share the same column widths */
+  .schedule-header-table,
+  .schedule-body-table {
     width: 100%;
-    min-width: 700px;
+    min-width: 900px;
     table-layout: fixed;
     border-collapse: collapse;
   }
 
-  .schedule-sticky-head th {
-    position: sticky;
-    background: var(--paper);
-  }
-
-  /* Row 1: week labels */
-  .schedule-sticky-head tr:first-child th {
-    top: 0;
-    z-index: 11;
-  }
-
-  /* Row 2: day columns — sits just below row 1 (32px) */
-  .schedule-sticky-head tr:nth-child(2) th {
-    top: 32px;
-    z-index: 10;
-  }
-
-  /* Corner cell of row 2 needs highest z-index to sit above day headers AND row data */
-  .schedule-sticky-head tr:nth-child(2) th:first-child {
-    z-index: 12;
-  }
-
-  /* Corner cell of row 1 */
-  .schedule-sticky-head tr:first-child th:first-child {
-    z-index: 13;
-  }
-
-  /* Name column fixed width, day columns share remaining space evenly */
   .schedule-grid-fullwidth th:first-child,
   .schedule-grid-fullwidth td:first-child {
     width: 160px;
+    position: sticky;
+    left: 0;
+    background: var(--paper);
   }
+}
+
+/* Mobile: restore normal flow */
+@media (max-width: 899px) {
+  .schedule-sticky-header-wrap { display: none; }
+  .schedule-body-scroll { overflow: visible; }
 }
