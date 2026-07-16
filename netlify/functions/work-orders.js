@@ -22,7 +22,7 @@ exports.handler = async (event) => {
         id, wo_number, date_received, scheduled_date, status, details, invoice_number,
         completed_at, created_at, updated_at,
         job_locations(id, name),
-        employees!work_orders_assigned_to_id_fkey(id, first_name, last_name),
+        employees!work_orders_assigned_to_id_fkey(id, first_name, last_name, employee_company_roles(display_color)),
         completed_by:employees!work_orders_completed_by_id_fkey(id, first_name, last_name)
       `)
       .eq('company_id', companyId)
@@ -136,7 +136,11 @@ exports.handler = async (event) => {
       completedAt: w.completed_at,
       createdAt: w.created_at,
       jobLocation: w.job_locations ? { id: w.job_locations.id, name: w.job_locations.name } : null,
-      assignedTo: w.employees ? { id: w.employees.id, name: `${w.employees.first_name} ${w.employees.last_name}` } : null,
+      assignedTo: w.employees ? {
+        id: w.employees.id,
+        name: `${w.employees.first_name} ${w.employees.last_name}`,
+        displayColor: w.employees.employee_company_roles?.[0]?.display_color || null,
+      } : null,
       crew: assignmentsMap[w.id] || [],
       completedBy: w.completed_by ? { id: w.completed_by.id, name: `${w.completed_by.first_name} ${w.completed_by.last_name}` } : null,
       invoiceNumber: w.invoice_number || null,
