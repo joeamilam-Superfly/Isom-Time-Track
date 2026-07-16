@@ -57,6 +57,7 @@ exports.handler = async (event) => {
       .eq('company_id', companyId)
       .eq('active', true);
     employeeIds = (all || []).map(r => r.employee_id);
+    employeeIds = [...new Set(employeeIds)]; // deduplicate
 
     // Also include anyone DEACTIVATED at this company who still logged
     // hours during the requested week, so payroll-relevant hours don't
