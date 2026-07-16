@@ -22,7 +22,7 @@ exports.handler = async (event) => {
         id, wo_number, date_received, scheduled_date, status, details, invoice_number,
         completed_at, created_at, updated_at,
         job_locations(id, name),
-        employees!work_orders_assigned_to_id_fkey(id, first_name, last_name, employee_company_roles(display_color)),
+        employees!work_orders_assigned_to_id_fkey(id, first_name, last_name),
         completed_by:employees!work_orders_completed_by_id_fkey(id, first_name, last_name)
       `)
       .eq('company_id', companyId)
@@ -108,6 +108,20 @@ exports.handler = async (event) => {
       }
     }
 
+    // Fetch display colors for all assigned employees separately to avoid ambiguous join
+    const assignedEmpIds = [...new Set((data || []).map(w => w.assigned_to_id).filter(Boolean))];
+    let colorMap = {};
+    if (assignedEmpIds.length > 0) {
+      const { data: colorRows } = await supabase
+        .from('employee_company_roles')
+        .select('employee_id, display_color')
+        .eq('company_id', companyId)
+        .in('employee_id', assignedEmpIds);
+      for (const r of colorRows || []) {
+        colorMap[r.employee_id] = r.display_color || null;
+      }
+    }
+
     // Fetch crew assignments for each WO
     let assignmentsMap = {};
     if (woIds.length > 0) {
@@ -139,7 +153,7 @@ exports.handler = async (event) => {
       assignedTo: w.employees ? {
         id: w.employees.id,
         name: `${w.employees.first_name} ${w.employees.last_name}`,
-        displayColor: w.employees.employee_company_roles?.[0]?.display_color || null,
+        displayColor: colorMap[w.employees.id] || null,
       } : null,
       crew: assignmentsMap[w.id] || [],
       completedBy: w.completed_by ? { id: w.completed_by.id, name: `${w.completed_by.first_name} ${w.completed_by.last_name}` } : null,
