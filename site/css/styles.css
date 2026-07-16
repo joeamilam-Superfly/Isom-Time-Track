@@ -64,6 +64,18 @@ input, select, textarea {
   font-size: 16px; /* prevents iOS zoom-on-focus */
 }
 
+/* On desktop (900px+), allow the schedule grid to push the page wide */
+@media (min-width: 900px) {
+  html, body {
+    overflow-x: hidden; /* prevent horizontal body scroll */
+  }
+
+  /* Expand #app to full width on the schedule page */
+  #app.schedule-active {
+    max-width: 100%;
+  }
+}
+
 /* ---------- App shell ---------- */
 
 #app {
