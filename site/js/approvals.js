@@ -622,11 +622,38 @@ async function loadWorkOrdersSection() {
       const woContent = document.getElementById('wo-list-content');
       if (!woContent) return;
       const filtered = sortAndFilterWos(allWos);
+
       if (filtered.length === 0) {
         woContent.innerHTML = `<div class="screen-sub">${allWos.length === 0 ? 'No open work orders.' : 'No work orders match your search.'}</div>`;
         return;
       }
-      woContent.innerHTML = filtered.map(wo => workOrderCardHtml(wo, myRole)).join('');
+
+      const unassigned = filtered.filter(wo => !wo.assignedTo);
+      const assigned = filtered.filter(wo => wo.assignedTo);
+
+      let html = '';
+
+      if (unassigned.length > 0) {
+        html += `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <div style="font-weight:700;font-size:14px;color:#d97706;">📋 Unassigned (${unassigned.length})</div>
+            <div style="flex:1;height:1px;background:#fbbf24;"></div>
+          </div>
+          ${unassigned.map(wo => workOrderCardHtml(wo, myRole)).join('')}
+        `;
+      }
+
+      if (assigned.length > 0) {
+        html += `
+          <div style="display:flex;align-items:center;gap:8px;margin:${unassigned.length > 0 ? '16px' : '0px'} 0 8px;">
+            <div style="font-weight:700;font-size:14px;color:var(--ink-soft);">Assigned (${assigned.length})</div>
+            <div style="flex:1;height:1px;background:var(--line);"></div>
+          </div>
+          ${assigned.map(wo => workOrderCardHtml(wo, myRole)).join('')}
+        `;
+      }
+
+      woContent.innerHTML = html;
       woContent.querySelectorAll('[data-wo-view]').forEach(btn => {
         btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-wo-view'), allWos));
       });
@@ -649,13 +676,6 @@ async function loadWorkOrdersSection() {
       woContent.querySelectorAll('[data-wo-edit]').forEach(btn => {
         const wo = allWos.find(w => w.id === btn.getAttribute('data-wo-edit'));
         if (wo) btn.addEventListener('click', () => showEditWorkOrderDialog(wo));
-      });
-      woContent.querySelectorAll('[data-wo-queue-toggle]').forEach(btn => {
-        const wo = allWos.find(w => w.id === btn.getAttribute('data-wo-queue-toggle'));
-        if (wo) btn.addEventListener('click', async () => {
-          await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'toggle_queue_visible' }) });
-          loadWorkOrdersSection();
-        });
       });
       woContent.querySelectorAll('[data-wo-return-queue]').forEach(btn => {
         btn.addEventListener('click', async () => {
