@@ -535,9 +535,17 @@ async function loadWorkOrdersSection() {
   }
 
   woSection.innerHTML = `
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
       <div style="font-weight:700; font-size:16px;">Work Orders</div>
       ${canCreate ? `<button class="btn btn-amber btn-sm" id="wo-create-btn">+ New work order</button>` : ''}
+    </div>
+    <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+      <input id="wo-search-box" type="text" placeholder="Search WO#, location, employee..." style="flex:2; min-width:160px; padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;" />
+      <select id="wo-sort-select" style="flex:1; min-width:130px; padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px; background:#fff;">
+        <option value="newest">Newest first</option>
+        <option value="due_date">By due date</option>
+        <option value="employee">By employee</option>
+      </select>
     </div>
     <div id="wo-list-content">${loadingHtml()}</div>
   `;
@@ -577,36 +585,77 @@ async function loadWorkOrdersSection() {
     const woContent = document.getElementById('wo-list-content');
     if (!woContent) return;
 
-    if (allWos.length === 0) {
-      woContent.innerHTML = `<div class="screen-sub">No open work orders.</div>`;
-      return;
+    function sortAndFilterWos(wos) {
+      const searchBox = document.getElementById('wo-search-box');
+      const sortSel = document.getElementById('wo-sort-select');
+      const q = searchBox ? searchBox.value.trim().toLowerCase() : '';
+      const sort = sortSel ? sortSel.value : 'newest';
+
+      let filtered = q ? wos.filter(wo =>
+        wo.woNumber?.toLowerCase().includes(q) ||
+        wo.jobLocation?.name?.toLowerCase().includes(q) ||
+        wo.assignedTo?.name?.toLowerCase().includes(q) ||
+        wo.details?.toLowerCase().includes(q)
+      ) : wos;
+
+      if (sort === 'due_date') {
+        filtered = [...filtered].sort((a, b) => {
+          if (!a.scheduledDate && !b.scheduledDate) return 0;
+          if (!a.scheduledDate) return 1;
+          if (!b.scheduledDate) return -1;
+          return a.scheduledDate.localeCompare(b.scheduledDate);
+        });
+      } else if (sort === 'employee') {
+        filtered = [...filtered].sort((a, b) =>
+          (a.assignedTo?.name || 'zzz').localeCompare(b.assignedTo?.name || 'zzz')
+        );
+      }
+      // 'newest' is default order from API
+
+      return filtered;
     }
 
-    woContent.innerHTML = allWos.map(wo => workOrderCardHtml(wo, myRole)).join('');
-
-    woContent.querySelectorAll('[data-wo-view]').forEach(btn => {
-      btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-wo-view'), allWos));
-    });
-    woContent.querySelectorAll('[data-wo-submit]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        if (!confirm('Submit this work order to your foreman for approval?')) return;
-        try {
-          await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: btn.getAttribute('data-wo-submit'), action: 'submit' }) });
-          loadWorkOrdersSection();
-        } catch (err) { alert(err.message); }
+    function renderWoList() {
+      const woContent = document.getElementById('wo-list-content');
+      if (!woContent) return;
+      const filtered = sortAndFilterWos(allWos);
+      if (filtered.length === 0) {
+        woContent.innerHTML = `<div class="screen-sub">${allWos.length === 0 ? 'No open work orders.' : 'No work orders match your search.'}</div>`;
+        return;
+      }
+      woContent.innerHTML = filtered.map(wo => workOrderCardHtml(wo, myRole)).join('');
+      woContent.querySelectorAll('[data-wo-view]').forEach(btn => {
+        btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-wo-view'), allWos));
       });
-    });
-    woContent.querySelectorAll('[data-wo-complete]').forEach(btn => {
-      btn.addEventListener('click', () => completeWorkOrder(btn.getAttribute('data-wo-complete'), woContent));
-    });
-    woContent.querySelectorAll('[data-wo-bill]').forEach(btn => {
-      const wo = allWos.find(w => w.id === btn.getAttribute('data-wo-bill'));
-      if (wo) btn.addEventListener('click', () => showBillWorkOrderDialog(wo));
-    });
-    woContent.querySelectorAll('[data-wo-edit]').forEach(btn => {
-      const wo = allWos.find(w => w.id === btn.getAttribute('data-wo-edit'));
-      if (wo) btn.addEventListener('click', () => showEditWorkOrderDialog(wo));
-    });
+      woContent.querySelectorAll('[data-wo-submit]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Submit this work order to your foreman for approval?')) return;
+          try {
+            await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: btn.getAttribute('data-wo-submit'), action: 'submit' }) });
+            loadWorkOrdersSection();
+          } catch (err) { alert(err.message); }
+        });
+      });
+      woContent.querySelectorAll('[data-wo-complete]').forEach(btn => {
+        btn.addEventListener('click', () => completeWorkOrder(btn.getAttribute('data-wo-complete'), woContent));
+      });
+      woContent.querySelectorAll('[data-wo-bill]').forEach(btn => {
+        const wo = allWos.find(w => w.id === btn.getAttribute('data-wo-bill'));
+        if (wo) btn.addEventListener('click', () => showBillWorkOrderDialog(wo));
+      });
+      woContent.querySelectorAll('[data-wo-edit]').forEach(btn => {
+        const wo = allWos.find(w => w.id === btn.getAttribute('data-wo-edit'));
+        if (wo) btn.addEventListener('click', () => showEditWorkOrderDialog(wo));
+      });
+    }
+
+    // Wire search and sort
+    const searchBox = document.getElementById('wo-search-box');
+    const sortSel = document.getElementById('wo-sort-select');
+    if (searchBox) searchBox.addEventListener('input', renderWoList);
+    if (sortSel) sortSel.addEventListener('change', renderWoList);
+
+    renderWoList();
   } catch (err) {
     const woContent = document.getElementById('wo-list-content');
     if (woContent) woContent.innerHTML = errorHtml(err.message);
