@@ -20,7 +20,7 @@ exports.handler = async (event) => {
       .from('work_orders')
       .select(`
         id, wo_number, date_received, scheduled_date, status, details, invoice_number,
-        completed_at, created_at, updated_at,
+        queue_visible, self_assigned_at, completed_at, created_at, updated_at,
         job_locations(id, name),
         employees!work_orders_assigned_to_id_fkey(id, first_name, last_name),
         completed_by:employees!work_orders_completed_by_id_fkey(id, first_name, last_name)
@@ -28,9 +28,20 @@ exports.handler = async (event) => {
       .eq('company_id', companyId)
       .order('created_at', { ascending: false });
 
-    // Employees see WOs assigned to them directly OR where they are crew members
-    if (myRole.role === 'employee') {
-      // Get WO IDs where this employee is a crew member
+    // Queue mode: return unassigned queue-visible WOs for eligible employees
+    if (params.queue === 'true') {
+      const { data: eligRow } = await supabase
+        .from('employee_company_roles')
+        .select('queue_eligible')
+        .eq('employee_id', auth.employeeId)
+        .eq('company_id', companyId)
+        .maybeSingle();
+      if (!eligRow?.queue_eligible && myRole.role === 'employee') {
+        return { statusCode: 200, body: JSON.stringify({ workOrders: [] }) };
+      }
+      query = query.eq('queue_visible', true).is('assigned_to_id', null).in('status', ['open']);
+    } else if (myRole.role === 'employee') {
+      // Employees see WOs assigned to them directly OR where they are crew members
       const { data: crewWos } = await supabase
         .from('work_order_assignments')
         .select('work_order_id')
@@ -157,6 +168,8 @@ exports.handler = async (event) => {
       } : null,
       crew: assignmentsMap[w.id] || [],
       completedBy: w.completed_by ? { id: w.completed_by.id, name: `${w.completed_by.first_name} ${w.completed_by.last_name}` } : null,
+      queueVisible: w.queue_visible || false,
+      selfAssignedAt: w.self_assigned_at || null,
       invoiceNumber: w.invoice_number || null,
       currentPhoto: (photoMap[w.id] || []).find(p => p.isCurrent) || null,
       allPhotos: photoMap[w.id] || [],
@@ -352,6 +365,41 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: JSON.stringify({ ok: true }) };
     }
 
+
+
+    // ---- grab from queue (employee self-assigns) ----
+    if (action === 'grab') {
+      if (wo.assigned_to_id) return { statusCode: 409, body: JSON.stringify({ error: 'This work order was just grabbed by someone else.' }) };
+      if (!wo.queue_visible) return { statusCode: 409, body: JSON.stringify({ error: 'This work order is not in the queue.' }) };
+      const { error } = await supabase.from('work_orders')
+        .update({ assigned_to_id: auth.employeeId, self_assigned_at: new Date().toISOString(), queue_visible: false, updated_at: new Date().toISOString() })
+        .eq('id', workOrderId).is('assigned_to_id', null);
+      if (error) return errorResponse(error);
+      return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+    }
+
+    // ---- return to queue (manual) ----
+    if (action === 'return_to_queue') {
+      if (myRole.role === 'employee' && wo.assigned_to_id !== auth.employeeId) {
+        return forbidden('You can only return work orders assigned to you');
+      }
+      const { error } = await supabase.from('work_orders')
+        .update({ assigned_to_id: null, self_assigned_at: null, queue_visible: true, updated_at: new Date().toISOString() })
+        .eq('id', workOrderId);
+      if (error) return errorResponse(error);
+      return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+    }
+
+    // ---- toggle_queue_visible (admin/foreman only) ----
+    if (action === 'toggle_queue_visible') {
+      if (myRole.role === 'employee') return forbidden('Only foremen and admins can manage the queue');
+      const newVal = !wo.queue_visible;
+      const { error } = await supabase.from('work_orders')
+        .update({ queue_visible: newVal, updated_at: new Date().toISOString() })
+        .eq('id', workOrderId);
+      if (error) return errorResponse(error);
+      return { statusCode: 200, body: JSON.stringify({ ok: true, queueVisible: newVal }) };
+    }
 
     // ---- reopen (foreman/admin only, only from ready_to_bill — not after billing) ----
     if (action === 'reopen') {
