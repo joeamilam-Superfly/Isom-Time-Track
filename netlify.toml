@@ -25,6 +25,9 @@
 [functions."scheduled-pto-accrual"]
   schedule = "0 * * * *"
 
+[functions."scheduled-queue-return"]
+  schedule = "0 * * * *"
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
