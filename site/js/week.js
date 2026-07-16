@@ -15,7 +15,7 @@ async function renderWeek(opts) {
       <div id="week-days">${loadingHtml()}</div>
     </main>
     <div class="bottom-bar" style="display:flex; gap:10px;">
-      <button class="btn btn-ghost" id="view-schedule-btn" style="flex:1;">View my schedule</button>
+      <button class="btn btn-ghost" id="view-schedule-btn" style="flex:1;">My work orders</button>
       <button class="btn btn-amber" id="add-today-btn" style="flex:1.5;">+ Log today's hours</button>
     </div>
   `;
