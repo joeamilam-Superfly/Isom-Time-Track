@@ -133,14 +133,6 @@ async function renderMyWorkOrders(container) {
       const wo = wos.find(w => w.id === btn.getAttribute('data-wo-edit'));
       if (wo) btn.addEventListener('click', () => showEditWorkOrderDialog(wo));
     });
-    container.querySelectorAll('[data-wo-queue-toggle]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const wo = wos.find(w => w.id === btn.getAttribute('data-wo-queue-toggle'));
-        if (!wo) return;
-        await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'toggle_queue_visible' }) });
-        await renderMyWorkOrders(container);
-      });
-    });
     container.querySelectorAll('[data-wo-return-queue]').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (!confirm('Return this work order to the unassigned queue?')) return;
@@ -155,7 +147,6 @@ async function renderMyWorkOrders(container) {
 
 function workOrderCardHtml(wo, myRole) {
   const isUnassigned = !wo.assignedTo;
-  const isQueued = wo.queueVisible && isUnassigned;
   const statusLabel = { open: 'Open', submitted: 'Pending review', ready_to_bill: 'Ready to bill', billed: 'Billed' }[wo.status] || wo.status;
   const statusColor = { open: 'var(--amber-dark)', submitted: '#7c3aed', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)' }[wo.status];
   const canComplete = (wo.status === 'open' || wo.status === 'submitted') && (myRole === 'admin' || myRole === 'foreman');
@@ -164,14 +155,14 @@ function workOrderCardHtml(wo, myRole) {
   const canManage = myRole === 'admin' || myRole === 'foreman';
   const pendingReview = wo.status === 'submitted' && (myRole === 'admin' || myRole === 'foreman');
 
-  // Color: unassigned queue = amber tint, assigned = employee color, otherwise default
-  const cardBg = isQueued
+  // Unassigned = amber tint, assigned = employee color
+  const cardBg = isUnassigned
     ? '#fef3c7'
     : (wo.assignedTo?.displayColor || 'var(--paper)');
 
-  const queueBadge = isQueued
-    ? `<div style="background:#d97706;color:#fff;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;margin-bottom:6px;display:inline-block;">📋 In queue — available to grab</div>`
-    : (isUnassigned && canManage ? `<div style="font-size:11px;color:var(--ink-soft);margin-bottom:4px;">Unassigned</div>` : '');
+  const queueBadge = isUnassigned
+    ? `<div style="background:#d97706;color:#fff;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;margin-bottom:6px;display:inline-block;">📋 Unassigned — available to grab</div>`
+    : '';
 
   return `
     <div class="day-stub" style="margin-bottom:10px; background:${cardBg}; border-radius:8px; overflow:hidden;">
@@ -196,7 +187,7 @@ function workOrderCardHtml(wo, myRole) {
           ${canSubmit ? `<button class="btn btn-sm btn-primary" data-wo-submit="${wo.id}">Submit for approval</button>` : ''}
           ${canComplete ? `<button class="btn btn-sm btn-primary" data-wo-complete="${wo.id}">${wo.status === 'submitted' ? 'Approve &amp; complete' : 'Mark complete'}</button>` : ''}
           ${canBillCard ? `<button class="btn btn-sm btn-primary" data-wo-bill="${wo.id}" style="background:#16a34a;">Mark as billed</button>` : ''}
-          ${canManage && wo.status === 'open' && isUnassigned ? `<button class="btn btn-sm ${isQueued ? 'btn-ghost' : 'btn-primary'}" data-wo-queue-toggle="${wo.id}">${isQueued ? 'Remove from queue' : 'Add to queue'}</button>` : ''}
+
           ${canManage && !isUnassigned && wo.selfAssignedAt ? `<button class="btn btn-sm btn-ghost" data-wo-return-queue="${wo.id}">Return to queue</button>` : ''}
           ${canManage ? `<button class="btn btn-sm btn-ghost" data-wo-edit="${wo.id}">Edit</button>` : ''}
         </div>
