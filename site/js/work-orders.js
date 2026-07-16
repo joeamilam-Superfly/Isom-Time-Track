@@ -197,7 +197,7 @@ function workOrderCardHtml(wo, myRole) {
           ${canComplete ? `<button class="btn btn-sm btn-primary" data-wo-complete="${wo.id}">${wo.status === 'submitted' ? 'Approve &amp; complete' : 'Mark complete'}</button>` : ''}
           ${canBillCard ? `<button class="btn btn-sm btn-primary" data-wo-bill="${wo.id}" style="background:#16a34a;">Mark as billed</button>` : ''}
           ${canManage && wo.status === 'open' && isUnassigned ? `<button class="btn btn-sm ${isQueued ? 'btn-ghost' : 'btn-primary'}" data-wo-queue-toggle="${wo.id}">${isQueued ? 'Remove from queue' : 'Add to queue'}</button>` : ''}
-          ${canManage && !isUnassigned ? `<button class="btn btn-sm btn-ghost" data-wo-return-queue="${wo.id}">Return to queue</button>` : ''}
+          ${canManage && !isUnassigned && wo.selfAssignedAt ? `<button class="btn btn-sm btn-ghost" data-wo-return-queue="${wo.id}">Return to queue</button>` : ''}
           ${canManage ? `<button class="btn btn-sm btn-ghost" data-wo-edit="${wo.id}">Edit</button>` : ''}
         </div>
       </div>
