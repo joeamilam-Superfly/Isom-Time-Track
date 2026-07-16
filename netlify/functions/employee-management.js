@@ -24,7 +24,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid request body' }) };
     }
 
-    const { companyId, firstName, lastName, phone, email, pin, role, foremanId, employmentStartDate } = body;
+    const { companyId, firstName, lastName, phone, email, pin, role, foremanId, employmentStartDate, billRate } = body;
     if (!companyId) return { statusCode: 400, body: JSON.stringify({ error: 'companyId is required' }) };
 
     const myRole = await resolveCompanyRole(auth.employeeId, companyId, auth.superAdmin);
@@ -85,6 +85,22 @@ exports.handler = async (event) => {
       employeeId = created.id;
     }
 
+    const EMPLOYEE_COLORS = [
+      '#dbeafe','#d1fae5','#fef3c7','#e0e7ff','#ccfbf1','#ede9fe',
+      '#ffedd5','#cffafe','#f0fdf4','#fef9c3','#f1f5f9','#e7e5e4',
+      '#ecfdf5','#eff6ff','#f5f3ff','#fff7ed','#ecfeff','#f0fdfa',
+      '#fef08a','#a7f3d0',
+    ];
+
+    // Pick a color not already in use at this company
+    const { data: existingColors } = await supabase
+      .from('employee_company_roles')
+      .select('display_color')
+      .eq('company_id', companyId)
+      .not('display_color', 'is', null);
+    const usedColors = new Set((existingColors || []).map(r => r.display_color));
+    const autoColor = EMPLOYEE_COLORS.find(c => !usedColors.has(c)) || EMPLOYEE_COLORS[Math.floor(Math.random() * EMPLOYEE_COLORS.length)];
+
     const { data: roleRow, error: roleError } = await supabase
       .from('employee_company_roles')
       .upsert({
@@ -93,6 +109,8 @@ exports.handler = async (event) => {
         role,
         foreman_id: foremanId || null,
         employment_start_date: employmentStartDate || null,
+        bill_rate: billRate ? Number(billRate) : null,
+        display_color: autoColor,
         active: true,
       }, { onConflict: 'employee_id,company_id' })
       .select()
@@ -190,7 +208,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid request body' }) };
     }
 
-    const { companyId, employeeId, firstName, lastName, phone, email, role, foremanId, employmentStartDate } = body;
+    const { companyId, employeeId, firstName, lastName, phone, email, role, foremanId, employmentStartDate, billRate } = body;
     if (!companyId) return { statusCode: 400, body: JSON.stringify({ error: 'companyId is required' }) };
     if (!employeeId) return { statusCode: 400, body: JSON.stringify({ error: 'employeeId is required' }) };
 
@@ -273,6 +291,8 @@ exports.handler = async (event) => {
     if (role !== undefined) roleUpdate.role = role;
     if (foremanId !== undefined) roleUpdate.foreman_id = foremanId || null;
     if (employmentStartDate !== undefined) roleUpdate.employment_start_date = employmentStartDate || null;
+    if (billRate !== undefined) roleUpdate.bill_rate = billRate ? Number(billRate) : null;
+    if (body.displayColor !== undefined) roleUpdate.display_color = body.displayColor || null;
 
     let updatedRoleRow = null;
     if (Object.keys(roleUpdate).length > 0) {
