@@ -496,6 +496,8 @@ function renderScheduleGrid(people, entries, week0Days, week1Days, week2Days, pe
     }
   }, { passive: true });
 
+  document.getElementById('app').classList.add('schedule-active');
+
   // Sync horizontal scroll: when body scrolls left/right, header follows
   const headerWrap = listEl.querySelector('.schedule-sticky-header-wrap');
   const bodyScroll = listEl.querySelector('.schedule-body-scroll');
