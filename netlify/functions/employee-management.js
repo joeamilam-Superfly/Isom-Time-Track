@@ -293,6 +293,7 @@ exports.handler = async (event) => {
     if (employmentStartDate !== undefined) roleUpdate.employment_start_date = employmentStartDate || null;
     if (billRate !== undefined) roleUpdate.bill_rate = billRate ? Number(billRate) : null;
     if (body.displayColor !== undefined) roleUpdate.display_color = body.displayColor || null;
+    if (body.queueEligible !== undefined) roleUpdate.queue_eligible = !!body.queueEligible;
 
     let updatedRoleRow = null;
     if (Object.keys(roleUpdate).length > 0) {
