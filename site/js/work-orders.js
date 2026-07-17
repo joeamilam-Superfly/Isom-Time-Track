@@ -167,7 +167,7 @@ async function renderMyWorkOrders(container) {
 function workOrderCardHtml(wo, myRole) {
   const isUnassigned = !wo.assignedTo && (!wo.crew || wo.crew.length === 0);
   const isEstimate = wo.isEstimate || false;
-  const statusLabel = { open: 'Open', submitted: 'Pending review', ready_to_bill: isEstimate ? 'Completed' : 'Ready to bill', billed: 'Billed' }[wo.status] || wo.status;
+  const statusLabel = { open: 'Open', submitted: 'Pending review', ready_to_bill: isEstimate ? 'Ready to complete' : 'Ready to bill', billed: isEstimate ? 'Completed' : 'Billed' }[wo.status] || wo.status;
   const statusColor = { open: 'var(--amber-dark)', submitted: '#7c3aed', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)' }[wo.status];
   const canComplete = (wo.status === 'open' || wo.status === 'submitted') && (myRole === 'admin' || myRole === 'foreman');
   const canSubmit = wo.status === 'open' && myRole === 'employee' && wo.assignedTo?.id === state.employee.id;
@@ -843,13 +843,14 @@ function showEditWorkOrderDialog(wo) {
   const checklistEl = overlay.querySelector('#edit-wo-crew-checklist');
 
   api(withCompany('/dashboard')).then(data => {
-    const allPeopleEdit = (data.people || []).filter(p => p.id !== wo.assignedTo?.id);
+    const allPeople = data.people || [];
+    const allPeopleEdit = allPeople.filter(p => p.id !== wo.assignedTo?.id); // crew only
 
-    // Also populate the assigned-to dropdown with My Team / Other sections
+    // Populate assigned-to dropdown — include ALL people including current assignee
     const sel = overlay.querySelector('#edit-wo-assigned');
     if (sel) {
-      const myTeamPeople = allPeopleEdit.filter(p => p.isMyTeam !== false);
-      const otherPeople = allPeopleEdit.filter(p => p.isMyTeam === false);
+      const myTeamAll = allPeople.filter(p => p.isMyTeam !== false);
+      const otherAll = allPeople.filter(p => p.isMyTeam === false);
       function addEditOpt(p, container) {
         const opt = document.createElement('option');
         opt.value = p.id;
@@ -857,13 +858,13 @@ function showEditWorkOrderDialog(wo) {
         if (p.id === wo.assignedTo?.id) opt.selected = true;
         container.appendChild(opt);
       }
-      if (otherPeople.length > 0) {
+      if (otherAll.length > 0) {
         const mg = document.createElement('optgroup'); mg.label = 'My Team';
-        myTeamPeople.forEach(p => addEditOpt(p, mg)); sel.appendChild(mg);
+        myTeamAll.forEach(p => addEditOpt(p, mg)); sel.appendChild(mg);
         const og = document.createElement('optgroup'); og.label = 'Other Employees';
-        otherPeople.forEach(p => addEditOpt(p, og)); sel.appendChild(og);
+        otherAll.forEach(p => addEditOpt(p, og)); sel.appendChild(og);
       } else {
-        myTeamPeople.forEach(p => addEditOpt(p, sel));
+        myTeamAll.forEach(p => addEditOpt(p, sel));
       }
       sel.addEventListener('change', () => checkWoConflicts(overlay));
     }
