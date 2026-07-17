@@ -1,23 +1,8 @@
 const { getAuthContext, unauthorized, forbidden, errorResponse } = require('./_auth-context');
 const { resolveCompanyRole, supabase } = require('./_company-role');
 const PDFDocument = require('pdfkit');
-const https = require('https');
-const http = require('http');
 
 const PHOTO_BUCKET = 'job-site-photos';
-
-// Fetches an image from a URL and returns it as a Buffer.
-function fetchImageBuffer(url) {
-  return new Promise((resolve, reject) => {
-    const client = url.startsWith('https') ? https : http;
-    client.get(url, (res) => {
-      const chunks = [];
-      res.on('data', chunk => chunks.push(chunk));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-      res.on('error', reject);
-    }).on('error', reject);
-  });
-}
 
 exports.handler = async (event) => {
   const auth = getAuthContext(event);
@@ -62,51 +47,29 @@ exports.handler = async (event) => {
     };
   }
 
-  // Get signed URLs for all receipt images
-  const withUrls = await Promise.all(receipts.map(async (r) => {
-    const { data: signed } = await supabase.storage
-      .from(PHOTO_BUCKET)
-      .createSignedUrl(r.storage_path, 300); // 5 min - enough to fetch and embed
-    return {
-      ...r,
-      signedUrl: signed?.signedUrl || null,
-      employeeName: r.employees ? `${r.employees.first_name} ${r.employees.last_name}` : 'Unknown',
-      locationName: r.job_locations?.name || 'No location',
-      amount: r.receipt_amount ? Number(r.receipt_amount) : 0,
-      date: r.taken_at ? r.taken_at.slice(0, 10) : '',
-    };
+  const withData = receipts.map(r => ({
+    ...r,
+    employeeName: r.employees ? `${r.employees.first_name} ${r.employees.last_name}` : 'Unknown',
+    locationName: r.job_locations?.name || 'No location',
+    amount: r.receipt_amount ? Number(r.receipt_amount) : 0,
+    date: r.taken_at ? r.taken_at.slice(0, 10) : '',
   }));
 
-  // Pre-fetch all images in parallel before building the PDF.
-  // Sequential fetching inside the loop risks hitting the function timeout
-  // with many receipts - parallel fetching gets all network I/O done fast.
-  const imageBuffers = {};
-  await Promise.all(withUrls.map(async (r) => {
-    if (r.signedUrl) {
-      try {
-        imageBuffers[r.id] = await fetchImageBuffer(r.signedUrl);
-      } catch {
-        imageBuffers[r.id] = null;
-      }
-    }
-  }));
-
-  // Build the PDF using pdfkit
+  // Build PDF — metadata only (no image embedding to stay within function timeout)
   const doc = new PDFDocument({ margin: 50, size: 'LETTER' });
   const chunks = [];
   doc.on('data', chunk => chunks.push(chunk));
-
   const pdfReady = new Promise((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
 
-  // Cover page header
+  // Header
   doc.fontSize(20).font('Helvetica-Bold').text('Receipt Report', { align: 'center' });
   doc.fontSize(12).font('Helvetica').text(`Week of ${weekOf} through ${endDateStr}`, { align: 'center' });
   doc.moveDown(0.5);
 
-  // Compute totals for the cover summary
-  const grandTotal = withUrls.reduce((sum, r) => sum + r.amount, 0);
+  // Grand total and per-employee summary
+  const grandTotal = withData.reduce((sum, r) => sum + r.amount, 0);
   const byEmployee = {};
-  for (const r of withUrls) {
+  for (const r of withData) {
     if (!byEmployee[r.employeeName]) byEmployee[r.employeeName] = 0;
     byEmployee[r.employeeName] += r.amount;
   }
@@ -116,7 +79,7 @@ exports.handler = async (event) => {
   doc.fontSize(13).font('Helvetica-Bold').text('Summary');
   doc.moveDown(0.25);
   for (const [name, total] of Object.entries(byEmployee).sort()) {
-    doc.fontSize(11).font('Helvetica').text(`${name}`, 60, doc.y, { continued: true });
+    doc.fontSize(11).font('Helvetica').text(name, 60, doc.y, { continued: true });
     doc.text(`$${total.toFixed(2)}`, { align: 'right' });
   }
   doc.moveDown(0.25);
@@ -126,35 +89,20 @@ exports.handler = async (event) => {
   doc.text(`$${grandTotal.toFixed(2)}`, { align: 'right' });
   doc.moveDown(1);
 
-  // Receipt pages - one per receipt with embedded image
-  for (const r of withUrls) {
-    doc.addPage();
+  // Receipt detail lines
+  doc.fontSize(13).font('Helvetica-Bold').text('Receipt Detail');
+  doc.moveDown(0.5);
 
-    // Receipt header
-    doc.fontSize(14).font('Helvetica-Bold').text(r.employeeName);
-    doc.fontSize(11).font('Helvetica').fillColor('#666666').text(`${r.date}  |  ${r.locationName}`);
+  for (const r of withData) {
+    doc.moveTo(50, doc.y).lineTo(560, doc.y).stroke('#cccccc');
+    doc.moveDown(0.25);
+    doc.fontSize(11).font('Helvetica-Bold').text(r.employeeName, { continued: true });
+    doc.font('Helvetica').fillColor('#16a34a').text(`  $${r.amount.toFixed(2)}`, { align: 'right' });
     doc.fillColor('#000000');
-    if (r.description) {
-      doc.fontSize(11).text(r.description);
-    }
-    doc.fontSize(13).font('Helvetica-Bold').text(`$${r.amount.toFixed(2)}`, { align: 'right' });
-    doc.moveDown(0.5);
-    doc.moveTo(50, doc.y).lineTo(560, doc.y).stroke();
-    doc.moveDown(0.5);
-
-    // Embed the receipt image if available
-    const imgBuffer = imageBuffers[r.id];
-    if (imgBuffer) {
-      try {
-        doc.image(imgBuffer, { fit: [510, 560], align: 'center' });
-      } catch (imgErr) {
-        doc.fontSize(10).fillColor('#999999').text('[Image could not be loaded]');
-        doc.fillColor('#000000');
-      }
-    } else {
-      doc.fontSize(10).fillColor('#999999').text('[No image available]');
-      doc.fillColor('#000000');
-    }
+    doc.fontSize(10).font('Helvetica').fillColor('#666666').text(`${r.date}  |  ${r.locationName}`);
+    if (r.description) doc.text(r.description);
+    doc.fillColor('#000000');
+    doc.moveDown(0.4);
   }
 
   doc.end();
