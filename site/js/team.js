@@ -58,22 +58,38 @@ function renderTeamList(people) {
   }
 
   const roleLabel = { employee: 'Employee', foreman: 'Foreman', admin: 'Admin' };
+  const myTeam = people.filter(p => p.isMyTeam !== false);
+  const others = people.filter(p => p.isMyTeam === false);
 
-  el.innerHTML = people.map(p => `
-    <div class="day-stub" data-person-id="${p.id}" style="cursor:pointer; ${p.roleActive === false ? 'opacity:0.55;' : ''}">
-      <div class="day-stub-perf"></div>
-      <div class="day-stub-body">
-        <div class="day-stub-top">
-          <div class="day-stub-date">${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)}${p.roleActive === false ? ' (deactivated)' : ''}</div>
-          <div class="day-stub-hours">${p.currentWeekHours.toFixed(1)}h</div>
+  function personCardHtml(p) {
+    return `
+      <div class="day-stub" data-person-id="${p.id}" style="cursor:pointer; ${p.roleActive === false ? 'opacity:0.55;' : ''}">
+        <div class="day-stub-perf"></div>
+        <div class="day-stub-body">
+          <div class="day-stub-top">
+            <div class="day-stub-date">${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)}${p.roleActive === false ? ' (deactivated)' : ''}</div>
+            <div class="day-stub-hours">${p.currentWeekHours.toFixed(1)}h</div>
+          </div>
+          <div class="day-stub-meta">
+            <span>${roleLabel[p.role] || p.role}</span>
+            <span>Leave remaining: ${p.ptoBalance.remainingHours.toFixed(1)}h</span>
+          </div>
         </div>
-        <div class="day-stub-meta">
-          <span>${roleLabel[p.role] || p.role}</span>
-          <span>Leave remaining: ${p.ptoBalance.remainingHours.toFixed(1)}h</span>
-        </div>
-      </div>
-    </div>
-  `).join('');
+      </div>`;
+  }
+
+  let html = '';
+  if (myTeam.length > 0) {
+    if (others.length > 0) {
+      html += `<div style="font-weight:700;font-size:13px;color:var(--ink-soft);margin:0 0 8px;letter-spacing:0.05em;">MY TEAM</div>`;
+    }
+    html += myTeam.map(personCardHtml).join('');
+  }
+  if (others.length > 0) {
+    html += `<div style="font-weight:700;font-size:13px;color:var(--ink-soft);margin:16px 0 8px;letter-spacing:0.05em;">OTHER EMPLOYEES</div>`;
+    html += others.map(personCardHtml).join('');
+  }
+  el.innerHTML = html;
 
   el.querySelectorAll('[data-person-id]').forEach(card => {
     card.addEventListener('click', () => render('team', { employeeId: card.getAttribute('data-person-id') }));
