@@ -166,20 +166,32 @@ exports.handler = async (event) => {
     roleQuery = roleQuery.eq('active', true);
   }
 
-  if (myRole.role === 'foreman') {
-    // Fetch crew (assigned to this foreman) AND the foreman themselves
-    // so they appear as a schedulable row in the grid alongside their team.
-    roleQuery = roleQuery.or(`foreman_id.eq.${auth.employeeId},employee_id.eq.${auth.employeeId}`);
-  }
+  // Foremen now see ALL company employees — their crew is flagged with isMyTeam
+  // so the frontend can show "My Team" section first, then "Other Employees"
+  // No filter here — let all active employees through
 
   const { data: roleRows, error: roleListError } = await roleQuery;
   if (roleListError) return errorResponse(roleListError);
 
-  // Only ever show people whose underlying employee record is active -
-  // a fully deactivated person record (vs. just removed from one
-  // company) shouldn't show up here regardless.
   const visibleRows = (roleRows || []).filter(r => r.employees?.active);
   const employeeIds = visibleRows.map(r => r.employee_id);
+
+  if (employeeIds.length === 0) {
+    return { statusCode: 200, body: JSON.stringify({ weekOf, weekEnd, people: [] }) };
+  }
+
+  // Fetch foreman phone numbers for conflict warnings
+  const foremanIds = [...new Set(visibleRows.map(r => r.foreman_id).filter(Boolean))];
+  const foremanPhoneMap = {};
+  if (foremanIds.length > 0) {
+    const { data: foremanRows } = await supabase
+      .from('employees')
+      .select('id, first_name, last_name, phone')
+      .in('id', foremanIds);
+    for (const f of foremanRows || []) {
+      foremanPhoneMap[f.id] = { name: `${f.first_name} ${f.last_name}`, phone: f.phone };
+    }
+  }
 
   if (employeeIds.length === 0) {
     return { statusCode: 200, body: JSON.stringify({ weekOf, weekEnd, people: [] }) };
@@ -211,7 +223,15 @@ exports.handler = async (event) => {
   }
 
   const people = visibleRows
-    .sort((a, b) => (a.employees.first_name || '').localeCompare(b.employees.first_name || ''))
+    .sort((a, b) => {
+      const aIsMyTeam = myRole.role === 'foreman'
+        ? (a.foreman_id === auth.employeeId || a.employee_id === auth.employeeId) : true;
+      const bIsMyTeam = myRole.role === 'foreman'
+        ? (b.foreman_id === auth.employeeId || b.employee_id === auth.employeeId) : true;
+      if (aIsMyTeam && !bIsMyTeam) return -1;
+      if (!aIsMyTeam && bIsMyTeam) return 1;
+      return (a.employees.first_name || '').localeCompare(b.employees.first_name || '');
+    })
     .map(r => {
       const empEntries = entriesByEmployee[r.employee_id] || [];
       const { totals } = classifyWeek(empEntries);
@@ -223,6 +243,10 @@ exports.handler = async (event) => {
         lastName: r.employees.last_name,
         role: r.role,
         foremanId: r.foreman_id || null,
+        foremanInfo: r.foreman_id ? (foremanPhoneMap[r.foreman_id] || null) : null,
+        isMyTeam: myRole.role === 'foreman'
+          ? (r.foreman_id === auth.employeeId || r.employee_id === auth.employeeId)
+          : true, // admins see everyone as "their" team
         phone: r.employees.phone,
         roleActive: r.active,
         displayColor: r.display_color || null,
