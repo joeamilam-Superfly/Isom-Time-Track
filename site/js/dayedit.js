@@ -113,20 +113,27 @@ function getCurrentDateFromScreen() {
 // used when an employee taps a scheduled location card to log time
 // against it directly, rather than having to find the location themselves.
 function showSegmentFormDialogWithLocation(date, locId, locName) {
-  // Pre-select the location before opening the dialog
   selectedJobLocationId = locId || null;
   const latestSeg = findLatestSegment((state.todayTimeEntries || []).filter(e => e.hours_type !== 'pto'));
   const dialog = showSegmentFormDialog(date, null, latestSeg);
-  // After the dialog opens, set the location input field to the scheduled location
-  // so the employee sees it pre-filled without having to search
+  // After the dialog opens, set both the input text AND fire the selection
+  // so the form knows this is a valid existing location, not a new one
   setTimeout(() => {
     const input = document.getElementById('seg-job-location-input');
-    if (input && locName) input.value = locName;
-  }, 0);
+    if (input && locName) {
+      _settingLocationProgrammatically = true;
+      input.value = locName;
+      input.dispatchEvent(new Event('input')); // update suggestions UI
+      _settingLocationProgrammatically = false;
+      // Re-assert the ID since the input event may have cleared it
+      selectedJobLocationId = locId || null;
+    }
+  }, 50);
   return dialog;
 }
 
 let selectedJobLocationId = null;
+let _settingLocationProgrammatically = false;
 
 // Finds the chronologically last-ending segment among a day's worked
 // segments, so the add-segment dialog can show "where they left off" -
@@ -358,6 +365,7 @@ function setupSegmentLocationAutocomplete() {
   const suggestionsEl = document.getElementById('seg-job-location-suggestions');
 
   input.addEventListener('input', () => {
+    if (_settingLocationProgrammatically) return;
     selectedJobLocationId = null;
     const query = input.value.trim();
     if (!query) {
