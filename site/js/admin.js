@@ -610,38 +610,35 @@ function csvEscape(value) {
 async function downloadReceiptPdf(weekOf) {
   const btn = document.getElementById('export-pdf-btn');
   btn.disabled = true;
-  btn.textContent = 'Generating PDF...';
+  btn.textContent = 'Opening report...';
 
   try {
     const response = await fetch(
       `/.netlify/functions/receipt-pdf?companyId=${encodeURIComponent(state.activeCompanyId)}&weekOf=${encodeURIComponent(weekOf)}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${state.token}`,
-        },
-      }
+      { headers: { 'Authorization': `Bearer ${state.token}` } }
     );
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      if (data.noReceipts) {
-        alert('No receipts found for this week.');
-        return;
-      }
-      throw new Error(data.error || 'Failed to generate PDF');
+      if (data.noReceipts) { alert('No receipts found for this week.'); return; }
+      throw new Error(data.error || `Server error ${response.status}`);
     }
 
-    const blob = await response.blob();
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const data = await response.json();
+      if (data.noReceipts) { alert('No receipts found for this week.'); return; }
+      throw new Error(data.error || 'No receipts found');
+    }
+
+    // HTML report — open in new tab so user can Print → Save as PDF
+    const html = await response.text();
+    const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `receipts-${weekOf}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (err) {
-    alert(`Could not generate receipt PDF: ${err.message}`);
+    alert(`Could not generate receipt report: ${err.message}`);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Receipt PDF';
