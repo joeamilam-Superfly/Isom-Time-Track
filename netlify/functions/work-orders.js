@@ -41,7 +41,9 @@ exports.handler = async (event) => {
         return { statusCode: 200, body: JSON.stringify({ workOrders: [] }) };
       }
       // Queue mode: return ALL unassigned open WOs — no queue_visible gate needed
+      // Exclude WOs that have crew members assigned (they're not truly unassigned)
       query = query.is('assigned_to_id', null).in('status', ['open']);
+      // Filter out crew-assigned WOs after fetch (crew check requires separate query)
     } else if (myRole.role === 'employee') {
       // Employees see WOs assigned to them directly OR where they are crew members
       const { data: crewWos } = await supabase
@@ -153,7 +155,7 @@ exports.handler = async (event) => {
       }
     }
 
-    const workOrders = (data || []).map(w => ({
+    let workOrders = (data || []).map(w => ({
       id: w.id,
       woNumber: w.wo_number,
       dateReceived: w.date_received,
@@ -180,6 +182,11 @@ exports.handler = async (event) => {
       timeEntries: woTimeMap[w.id] || [],
       totalHours: (woTimeMap[w.id] || []).reduce((sum, e) => sum + e.hoursWorked, 0),
     }));
+
+    // For queue mode: exclude WOs that have crew members — they are not truly unassigned
+    if (params.queue === 'true') {
+      workOrders = workOrders.filter(w => w.crew.length === 0);
+    }
 
     return { statusCode: 200, body: JSON.stringify({ workOrders }) };
   }
