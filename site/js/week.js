@@ -2,6 +2,9 @@ async function renderWeek(opts) {
   const weekOf = state.currentWeekOf || sundayOf(todayStr());
   state.currentWeekOf = weekOf;
 
+  const myCompany = state.companies.find(c => c.id === state.activeCompanyId);
+  const isManager = myCompany && (myCompany.role === 'admin' || myCompany.role === 'foreman');
+
   root.innerHTML = `
     ${topbarHtml()}
     <main>
@@ -16,6 +19,7 @@ async function renderWeek(opts) {
     </main>
     <div class="bottom-bar" style="display:flex; gap:10px;">
       <button class="btn btn-ghost" id="view-schedule-btn" style="flex:1;">My work orders</button>
+      ${isManager ? `<button class="btn btn-ghost" id="new-wo-quick-btn" style="flex:1;">+ New WO</button>` : ''}
       <button class="btn btn-amber" id="add-today-btn" style="flex:1.5;">+ Log today's hours</button>
     </div>
   `;
@@ -35,6 +39,9 @@ async function renderWeek(opts) {
     render('dayEdit', { date: todayStr(), autoAdd: true });
   });
   document.getElementById('view-schedule-btn').addEventListener('click', showUpcomingScheduleDialog);
+  if (isManager) {
+    document.getElementById('new-wo-quick-btn')?.addEventListener('click', () => showCreateWorkOrderDialog());
+  }
 
   try {
     const [data, woData] = await Promise.all([
