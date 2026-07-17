@@ -4,7 +4,8 @@
 // tab - this file is specifically the employee's own view.
 
 async function showUpcomingScheduleDialog() {
-  const canCreateWo = currentCompanyRole() === 'admin' || currentCompanyRole() === 'foreman';
+  const myCompany = state.companies.find(c => c.id === state.activeCompanyId);
+  const canCreateWo = myCompany && (myCompany.role === 'admin' || myCompany.role === 'foreman');
 
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:flex-end;justify-content:center;z-index:150;';
