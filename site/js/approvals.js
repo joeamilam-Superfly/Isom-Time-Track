@@ -592,13 +592,16 @@ async function loadWorkOrdersSection() {
       const q = searchBox ? searchBox.value.trim().toLowerCase() : '';
       const sort = sortSel ? sortSel.value : 'newest';
 
-      let filtered = q ? wos.filter(wo =>
-        wo.woNumber?.toLowerCase().includes(q) ||
-        wo.jobLocation?.name?.toLowerCase().includes(q) ||
-        wo.assignedTo?.name?.toLowerCase().includes(q) ||
-        wo.details?.toLowerCase().includes(q) ||
-        wo.invoiceNumber?.toLowerCase().includes(q)
-      ) : wos;
+      let filtered = q ? wos.filter(wo => {
+        // WO# and invoice# must be exact match (case-insensitive)
+        const woMatch = wo.woNumber?.toLowerCase() === q;
+        const invoiceMatch = wo.invoiceNumber?.toLowerCase() === q;
+        // Location, employee, details allow partial match
+        const locationMatch = wo.jobLocation?.name?.toLowerCase().includes(q);
+        const employeeMatch = wo.assignedTo?.name?.toLowerCase().includes(q);
+        const detailsMatch = wo.details?.toLowerCase().includes(q);
+        return woMatch || invoiceMatch || locationMatch || employeeMatch || detailsMatch;
+      }) : wos;
 
       if (sort === 'unassigned') {
         filtered = filtered.filter(wo => !wo.assignedTo);
@@ -661,8 +664,8 @@ async function loadWorkOrdersSection() {
       const archiveSection = document.getElementById('wo-archive-inline');
       if (q && (myRole === 'admin')) {
         const matchedBilled = billedWos.filter(wo =>
-          wo.woNumber?.toLowerCase().includes(q) ||
-          wo.invoiceNumber?.toLowerCase().includes(q) ||
+          wo.woNumber?.toLowerCase() === q ||
+          wo.invoiceNumber?.toLowerCase() === q ||
           wo.jobLocation?.name?.toLowerCase().includes(q) ||
           wo.assignedTo?.name?.toLowerCase().includes(q)
         );
