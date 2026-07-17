@@ -659,40 +659,29 @@ async function loadWorkOrdersSection() {
 
       woContent.innerHTML = html;
 
-      // Also show matching archived/billed WOs when there's a search query
-      const q = document.getElementById('wo-search-box')?.value.trim().toLowerCase() || '';
-      const archiveSection = document.getElementById('wo-archive-inline');
-      if (q && (myRole === 'admin')) {
+      // Append matching archived/billed WOs when there's a search query
+      const q2 = document.getElementById('wo-search-box')?.value.trim().toLowerCase() || '';
+      if (q2 && myRole === 'admin' && billedWos.length > 0) {
         const matchedBilled = billedWos.filter(wo =>
-          wo.woNumber?.toLowerCase() === q ||
-          wo.invoiceNumber?.toLowerCase() === q ||
-          wo.jobLocation?.name?.toLowerCase().includes(q) ||
-          wo.assignedTo?.name?.toLowerCase().includes(q)
+          wo.woNumber?.toLowerCase() === q2 ||
+          wo.invoiceNumber?.toLowerCase() === q2 ||
+          wo.jobLocation?.name?.toLowerCase().includes(q2) ||
+          wo.assignedTo?.name?.toLowerCase().includes(q2)
         );
         if (matchedBilled.length > 0) {
-          let archiveEl = document.getElementById('wo-archive-inline');
-          if (!archiveEl) {
-            archiveEl = document.createElement('div');
-            archiveEl.id = 'wo-archive-inline';
-            woContent.parentNode.insertBefore(archiveEl, woContent.nextSibling);
-          }
-          archiveEl.innerHTML = `
+          const archiveDiv = document.createElement('div');
+          archiveDiv.innerHTML = `
             <div style="display:flex;align-items:center;gap:8px;margin:16px 0 8px;">
               <div style="font-weight:700;font-size:14px;color:var(--ink-soft);">Archived (${matchedBilled.length})</div>
               <div style="flex:1;height:1px;background:var(--line);"></div>
             </div>
             ${matchedBilled.map(wo => workOrderCardHtml(wo, myRole)).join('')}
           `;
-          archiveEl.querySelectorAll('[data-wo-view]').forEach(btn => {
+          archiveDiv.querySelectorAll('[data-wo-view]').forEach(btn => {
             btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-wo-view'), [...allWos, ...billedWos]));
           });
-        } else {
-          const archiveEl = document.getElementById('wo-archive-inline');
-          if (archiveEl) archiveEl.innerHTML = '';
+          woContent.appendChild(archiveDiv);
         }
-      } else {
-        const archiveEl = document.getElementById('wo-archive-inline');
-        if (archiveEl) archiveEl.innerHTML = '';
       }
       woContent.querySelectorAll('[data-wo-view]').forEach(btn => {
         btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-wo-view'), allWos));
