@@ -165,7 +165,7 @@ async function renderMyWorkOrders(container) {
 }
 
 function workOrderCardHtml(wo, myRole) {
-  const isUnassigned = !wo.assignedTo;
+  const isUnassigned = !wo.assignedTo && (!wo.crew || wo.crew.length === 0);
   const isEstimate = wo.isEstimate || false;
   const statusLabel = { open: 'Open', submitted: 'Pending review', ready_to_bill: isEstimate ? 'Completed' : 'Ready to bill', billed: 'Billed' }[wo.status] || wo.status;
   const statusColor = { open: 'var(--amber-dark)', submitted: '#7c3aed', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)' }[wo.status];
