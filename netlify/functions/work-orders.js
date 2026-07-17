@@ -259,6 +259,17 @@ exports.handler = async (event) => {
     if (action === 'check_conflicts') {
       const { employeeId: checkEmpId, scheduledDate: checkDate } = body;
       if (!checkEmpId || !checkDate) return { statusCode: 200, body: JSON.stringify({ conflicts: [] }) };
+      // Get assigned employee's foreman contact for conflict warnings
+      const { data: empRole } = await supabase
+        .from('employee_company_roles')
+        .select('foreman_id, employees!employee_company_roles_foreman_id_fkey(first_name, last_name, phone)')
+        .eq('employee_id', checkEmpId)
+        .eq('company_id', companyId)
+        .maybeSingle();
+
+      const foremanName = empRole?.employees ? `${empRole.employees.first_name} ${empRole.employees.last_name}` : null;
+      const foremanPhone = empRole?.employees?.phone || null;
+
       const conflicts = [];
       const { data: schedEntries } = await supabase
         .from('schedule_entries')
@@ -268,8 +279,8 @@ exports.handler = async (event) => {
         .eq('scheduled_date', checkDate);
       for (const entry of schedEntries || []) {
         const locName = entry.job_locations?.name?.toUpperCase();
-        if (locName === 'OFF') conflicts.push({ type: 'scheduled_off', message: 'This employee is scheduled OFF on this date' });
-        else if (locName) conflicts.push({ type: 'scheduled_elsewhere', message: `This employee is already scheduled at ${entry.job_locations.name} on this date` });
+        if (locName === 'OFF') conflicts.push({ type: 'scheduled_off', message: 'This employee is scheduled OFF on this date', foremanName, foremanPhone });
+        else if (locName) conflicts.push({ type: 'scheduled_elsewhere', message: `This employee is already scheduled at ${entry.job_locations.name} on this date`, foremanName, foremanPhone });
       }
       const { data: leaveRequests } = await supabase
         .from('pto_requests')
@@ -279,7 +290,7 @@ exports.handler = async (event) => {
         .lte('start_date', checkDate)
         .gte('end_date', checkDate);
       for (const req of leaveRequests || []) {
-        conflicts.push({ type: 'leave_request', message: `This employee has a ${req.status === 'pending' ? 'pending' : 'approved'} leave request covering this date` });
+        conflicts.push({ type: 'leave_request', message: `This employee has a ${req.status === 'pending' ? 'pending' : 'approved'} leave request covering this date`, foremanName, foremanPhone });
       }
       return { statusCode: 200, body: JSON.stringify({ conflicts }) };
     }
