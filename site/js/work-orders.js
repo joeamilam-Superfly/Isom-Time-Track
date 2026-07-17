@@ -878,10 +878,10 @@ function showEditWorkOrderDialog(wo) {
   });
 }
 
-// ---- Badge: ready-to-bill count ----
+// ---- Badge: ready-to-bill count (admin only) ----
 async function checkPendingWorkOrders() {
   const myRole = currentCompanyRole();
-  if (myRole !== 'admin' && myRole !== 'foreman') return;
+  if (myRole !== 'admin') return;
   try {
     const data = await api(withCompany('/work-orders?status=ready_to_bill'));
     const count = (data.workOrders || []).length;
@@ -899,6 +899,34 @@ async function checkPendingWorkOrders() {
     }
   } catch (err) {
     console.error('Could not check work orders:', err);
+  }
+}
+
+// ---- Badge: pending crew approvals (foreman only) ----
+async function checkPendingCrewApprovals() {
+  const myRole = currentCompanyRole();
+  if (myRole !== 'foreman') return;
+  try {
+    const data = await api(withCompany('/weekly-summary'));
+    const pendingCount = (data.summaries || []).filter(s =>
+      s.employeeId !== state.employee.id &&
+      s.status === 'awaiting_foreman'
+    ).length;
+    if (pendingCount > 0) {
+      const schedTab = document.querySelector('[data-tab="approvals"]');
+      if (schedTab) {
+        let badge = schedTab.querySelector('.wo-badge');
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'wo-badge';
+          badge.style.cssText = 'background:#C47C1E;color:#fff;border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;margin-left:4px;';
+          schedTab.appendChild(badge);
+        }
+        badge.textContent = pendingCount;
+      }
+    }
+  } catch (err) {
+    console.error('Could not check crew approvals:', err);
   }
 }
 
