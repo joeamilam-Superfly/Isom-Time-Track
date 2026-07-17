@@ -626,12 +626,29 @@ async function loadWorkOrdersSection() {
       const woContent = document.getElementById('wo-list-content');
       if (!woContent) return;
       const filtered = sortAndFilterWos(allWos);
+      const q2 = document.getElementById('wo-search-box')?.value.trim().toLowerCase() || '';
 
-      if (filtered.length === 0) {
+      // Find matching archived WOs BEFORE any early return
+      let matchedBilled = [];
+      if (q2 && myRole === 'admin' && billedWos.length > 0) {
+        matchedBilled = billedWos.filter(wo =>
+          wo.woNumber?.toLowerCase() === q2 ||
+          wo.invoiceNumber?.toLowerCase() === q2 ||
+          wo.jobLocation?.name?.toLowerCase().includes(q2) ||
+          wo.assignedTo?.name?.toLowerCase().includes(q2)
+        );
+      }
+
+      if (filtered.length === 0 && matchedBilled.length === 0) {
         woContent.innerHTML = `<div class="screen-sub">${allWos.length === 0 ? 'No open work orders.' : 'No work orders match your search.'}</div>`;
         return;
       }
 
+      if (filtered.length === 0) {
+        woContent.innerHTML = '<div class="screen-sub">No active work orders match your search.</div>';
+      }
+
+      if (filtered.length > 0) {
       const unassigned = filtered.filter(wo => !wo.assignedTo);
       const assigned = filtered.filter(wo => wo.assignedTo);
 
@@ -658,30 +675,22 @@ async function loadWorkOrdersSection() {
       }
 
       woContent.innerHTML = html;
+      } // end filtered.length > 0
 
-      // Append matching archived/billed WOs when there's a search query
-      const q2 = document.getElementById('wo-search-box')?.value.trim().toLowerCase() || '';
-      if (q2 && myRole === 'admin' && billedWos.length > 0) {
-        const matchedBilled = billedWos.filter(wo =>
-          wo.woNumber?.toLowerCase() === q2 ||
-          wo.invoiceNumber?.toLowerCase() === q2 ||
-          wo.jobLocation?.name?.toLowerCase().includes(q2) ||
-          wo.assignedTo?.name?.toLowerCase().includes(q2)
-        );
-        if (matchedBilled.length > 0) {
-          const archiveDiv = document.createElement('div');
-          archiveDiv.innerHTML = `
-            <div style="display:flex;align-items:center;gap:8px;margin:16px 0 8px;">
-              <div style="font-weight:700;font-size:14px;color:var(--ink-soft);">Archived (${matchedBilled.length})</div>
-              <div style="flex:1;height:1px;background:var(--line);"></div>
-            </div>
-            ${matchedBilled.map(wo => workOrderCardHtml(wo, myRole)).join('')}
-          `;
-          archiveDiv.querySelectorAll('[data-wo-view]').forEach(btn => {
-            btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-wo-view'), [...allWos, ...billedWos]));
-          });
-          woContent.appendChild(archiveDiv);
-        }
+      // Append matching archived/billed WOs
+      if (matchedBilled.length > 0) {
+        const archiveDiv = document.createElement('div');
+        archiveDiv.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;margin:16px 0 8px;">
+            <div style="font-weight:700;font-size:14px;color:var(--ink-soft);">Archived (${matchedBilled.length})</div>
+            <div style="flex:1;height:1px;background:var(--line);"></div>
+          </div>
+          ${matchedBilled.map(wo => workOrderCardHtml(wo, myRole)).join('')}
+        `;
+        archiveDiv.querySelectorAll('[data-wo-view]').forEach(btn => {
+          btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-wo-view'), [...allWos, ...billedWos]));
+        });
+        woContent.appendChild(archiveDiv);
       }
       woContent.querySelectorAll('[data-wo-view]').forEach(btn => {
         btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-wo-view'), allWos));
