@@ -645,7 +645,7 @@ async function loadWorkOrdersSection() {
       }
 
       if (filtered.length === 0) {
-        woContent.innerHTML = '<div class="screen-sub">No active work orders match your search.</div>';
+        woContent.innerHTML = '';
       }
 
       if (filtered.length > 0) {
