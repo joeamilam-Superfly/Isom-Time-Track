@@ -605,7 +605,7 @@ async function loadWorkOrdersSection() {
       }) : wos;
 
       if (sort === 'unassigned') {
-        filtered = filtered.filter(wo => !wo.assignedTo);
+        filtered = filtered.filter(wo => !wo.assignedTo && (!wo.crew || wo.crew.length === 0));
       } else if (sort === 'due_date') {
         filtered = [...filtered].sort((a, b) => {
           if (!a.scheduledDate && !b.scheduledDate) return 0;
@@ -650,8 +650,8 @@ async function loadWorkOrdersSection() {
       }
 
       if (filtered.length > 0) {
-      const unassigned = filtered.filter(wo => !wo.assignedTo);
-      const assigned = filtered.filter(wo => wo.assignedTo);
+      const unassigned = filtered.filter(wo => !wo.assignedTo && (!wo.crew || wo.crew.length === 0));
+      const assigned = filtered.filter(wo => wo.assignedTo || (wo.crew && wo.crew.length > 0));
 
       let html = '';
 
