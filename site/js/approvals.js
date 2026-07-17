@@ -596,11 +596,12 @@ async function loadWorkOrdersSection() {
         // WO# and invoice# must be exact match (case-insensitive)
         const woMatch = wo.woNumber?.toLowerCase() === q;
         const invoiceMatch = wo.invoiceNumber?.toLowerCase() === q;
+        const linkedMatch = wo.linkedWoNumber?.toLowerCase() === q;
         // Location, employee, details allow partial match
         const locationMatch = wo.jobLocation?.name?.toLowerCase().includes(q);
         const employeeMatch = wo.assignedTo?.name?.toLowerCase().includes(q);
         const detailsMatch = wo.details?.toLowerCase().includes(q);
-        return woMatch || invoiceMatch || locationMatch || employeeMatch || detailsMatch;
+        return woMatch || invoiceMatch || linkedMatch || locationMatch || employeeMatch || detailsMatch;
       }) : wos;
 
       if (sort === 'unassigned') {
