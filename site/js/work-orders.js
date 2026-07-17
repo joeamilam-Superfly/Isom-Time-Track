@@ -90,13 +90,32 @@ async function populatePeopleSelect(selectEl, selectedId) {
   if (!selectEl) return;
   try {
     const data = await api(withCompany('/dashboard'));
-    (data.people || []).forEach(p => {
+    const people = data.people || [];
+    const myTeam = people.filter(p => p.isMyTeam !== false);
+    const others = people.filter(p => p.isMyTeam === false);
+
+    function addOption(p, container) {
       const opt = document.createElement('option');
       opt.value = p.id;
       opt.textContent = `${p.firstName} ${p.lastName} (${p.role})`;
       if (selectedId && p.id === selectedId) opt.selected = true;
-      selectEl.appendChild(opt);
-    });
+      container.appendChild(opt);
+    }
+
+    if (others.length > 0) {
+      // Use optgroups when there are two sections
+      const myGroup = document.createElement('optgroup');
+      myGroup.label = 'My Team';
+      myTeam.forEach(p => addOption(p, myGroup));
+      selectEl.appendChild(myGroup);
+
+      const otherGroup = document.createElement('optgroup');
+      otherGroup.label = 'Other Employees';
+      others.forEach(p => addOption(p, otherGroup));
+      selectEl.appendChild(otherGroup);
+    } else {
+      myTeam.forEach(p => addOption(p, selectEl));
+    }
   } catch (err) {
     console.error('Could not load people for dropdown:', err);
   }
@@ -464,7 +483,10 @@ function showCreateWorkOrderDialog() {
       checklistEl.innerHTML = `<div style="padding:12px;color:var(--ink-soft);font-size:12px;">No other employees to assign.</div>`;
       return;
     }
-    checklistEl.innerHTML = people.map(p => {
+    const myTeam = people.filter(p => p.isMyTeam !== false);
+    const others = people.filter(p => p.isMyTeam === false);
+
+    function crewRowHtml(p) {
       const checked = createCrewIds.has(p.id);
       return `
         <div data-crew-toggle="${p.id}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer;background:${checked ? 'var(--paper-dim)' : 'transparent'};">
@@ -476,7 +498,19 @@ function showCreateWorkOrderDialog() {
             <div style="font-size:11px;color:var(--ink-soft);">${p.role}</div>
           </div>
         </div>`;
-    }).join('');
+    }
+
+    let html = '';
+    if (myTeam.length > 0 && others.length > 0) {
+      html += `<div style="padding:6px 12px;font-size:11px;font-weight:700;color:var(--ink-soft);background:var(--paper-dim);letter-spacing:0.05em;">MY TEAM</div>`;
+    }
+    html += myTeam.map(crewRowHtml).join('');
+    if (others.length > 0) {
+      html += `<div style="padding:6px 12px;font-size:11px;font-weight:700;color:var(--ink-soft);background:var(--paper-dim);letter-spacing:0.05em;">OTHER EMPLOYEES</div>`;
+      html += others.map(crewRowHtml).join('');
+    }
+    checklistEl.innerHTML = html;
+
     checklistEl.querySelectorAll('[data-crew-toggle]').forEach(row => {
       row.addEventListener('click', () => {
         const id = row.getAttribute('data-crew-toggle');
@@ -772,35 +806,48 @@ function showEditWorkOrderDialog(wo) {
     editLocationId = id;
   }, wo.jobLocation?.name || '');
 
-  populatePeopleSelect(overlay.querySelector('#edit-wo-assigned'), wo.assignedTo?.id).then ? null : null;
-  api(withCompany('/dashboard')).then(data => {
-    const sel = overlay.querySelector('#edit-wo-assigned');
-    if (!sel) return;
-    data.people.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = `${p.firstName} ${p.lastName} (${p.role})`;
-      if (p.id === wo.assignedTo?.id) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    sel.addEventListener('change', () => checkWoConflicts(overlay));
-  }).catch(() => {});
-
   overlay.querySelector('#edit-wo-scheduled').addEventListener('change', () => checkWoConflicts(overlay));
 
-  // Crew checklist — all employees shown, tap to toggle
+  // Crew checklist — tap to toggle, My Team first then Other Employees
   let crewIds = new Set((wo.crew || []).map(c => c.id));
   const checklistEl = overlay.querySelector('#edit-wo-crew-checklist');
 
   api(withCompany('/dashboard')).then(data => {
-    const people = (data.people || []).filter(p => p.id !== wo.assignedTo?.id);
-    if (people.length === 0) {
+    const allPeopleEdit = (data.people || []).filter(p => p.id !== wo.assignedTo?.id);
+
+    // Also populate the assigned-to dropdown with My Team / Other sections
+    const sel = overlay.querySelector('#edit-wo-assigned');
+    if (sel) {
+      const myTeamPeople = allPeopleEdit.filter(p => p.isMyTeam !== false);
+      const otherPeople = allPeopleEdit.filter(p => p.isMyTeam === false);
+      function addEditOpt(p, container) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.firstName} ${p.lastName} (${p.role})`;
+        if (p.id === wo.assignedTo?.id) opt.selected = true;
+        container.appendChild(opt);
+      }
+      if (otherPeople.length > 0) {
+        const mg = document.createElement('optgroup'); mg.label = 'My Team';
+        myTeamPeople.forEach(p => addEditOpt(p, mg)); sel.appendChild(mg);
+        const og = document.createElement('optgroup'); og.label = 'Other Employees';
+        otherPeople.forEach(p => addEditOpt(p, og)); sel.appendChild(og);
+      } else {
+        myTeamPeople.forEach(p => addEditOpt(p, sel));
+      }
+      sel.addEventListener('change', () => checkWoConflicts(overlay));
+    }
+
+    if (allPeopleEdit.length === 0) {
       checklistEl.innerHTML = `<div style="padding:12px;color:var(--ink-soft);font-size:12px;">No other employees found.</div>`;
       return;
     }
 
     function renderChecklist() {
-      checklistEl.innerHTML = people.map(p => {
+      const myTeam = allPeopleEdit.filter(p => p.isMyTeam !== false);
+      const others = allPeopleEdit.filter(p => p.isMyTeam === false);
+
+      function crewRowHtml(p) {
         const checked = crewIds.has(p.id);
         return `
           <div data-crew-toggle="${p.id}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer;background:${checked ? 'var(--paper-dim)' : 'transparent'};">
@@ -812,7 +859,18 @@ function showEditWorkOrderDialog(wo) {
               <div style="font-size:11px;color:var(--ink-soft);">${p.role}</div>
             </div>
           </div>`;
-      }).join('');
+      }
+
+      let html = '';
+      if (myTeam.length > 0 && others.length > 0) {
+        html += `<div style="padding:6px 12px;font-size:11px;font-weight:700;color:var(--ink-soft);background:var(--paper-dim);letter-spacing:0.05em;">MY TEAM</div>`;
+      }
+      html += myTeam.map(crewRowHtml).join('');
+      if (others.length > 0) {
+        html += `<div style="padding:6px 12px;font-size:11px;font-weight:700;color:var(--ink-soft);background:var(--paper-dim);letter-spacing:0.05em;">OTHER EMPLOYEES</div>`;
+        html += others.map(crewRowHtml).join('');
+      }
+      checklistEl.innerHTML = html;
 
       checklistEl.querySelectorAll('[data-crew-toggle]').forEach(row => {
         row.addEventListener('click', () => {
@@ -1123,7 +1181,14 @@ async function checkWoConflicts(overlay) {
       warningEl.style.display = 'none';
     } else {
       warningEl.style.display = 'block';
-      warningEl.innerHTML = `⚠ <strong>Scheduling conflict${conflicts.length > 1 ? 's' : ''}:</strong><ul style="margin:6px 0 0 16px;padding:0;">${conflicts.map(c => `<li>${c.message}</li>`).join('')}</ul><div style="margin-top:6px;font-size:12px;">You can still assign this WO — this is a warning only.</div>`;
+      warningEl.innerHTML = `⚠ <strong>Scheduling conflict${conflicts.length > 1 ? 's' : ''}:</strong><ul style="margin:6px 0 0 16px;padding:0;">${conflicts.map(c => {
+        let msg = c.message;
+        if (c.foremanName) {
+          const phone = c.foremanPhone ? ` — please call ${c.foremanName} at ${c.foremanPhone} to coordinate` : ` — please contact ${c.foremanName}`;
+          msg += phone;
+        }
+        return `<li>${msg}</li>`;
+      }).join('')}</ul><div style="margin-top:6px;font-size:12px;">You can still assign this WO — this is a warning only.</div>`;
     }
   } catch (err) {
     // Silently ignore conflict check errors — don't block the dialog
