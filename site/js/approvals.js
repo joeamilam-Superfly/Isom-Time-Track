@@ -862,6 +862,26 @@ function showScheduleCellDialog(employeeId, person, date, existingEntries) {
 
     const btn = document.getElementById('sched-dialog-add');
     btn.disabled = true;
+    btn.textContent = 'Checking...';
+
+    // Check for conflicts before saving
+    try {
+      const conflictResult = await api('/work-orders', {
+        method: 'PATCH',
+        body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: 'conflict-check', action: 'check_conflicts', employeeId, scheduledDate: date }),
+      });
+      const conflicts = conflictResult.conflicts || [];
+      if (conflicts.length > 0) {
+        const msgs = conflicts.map(c => {
+          let msg = c.message;
+          if (c.foremanName) msg += ` — please call ${c.foremanName}${c.foremanPhone ? ' at ' + c.foremanPhone : ''} to coordinate`;
+          return msg;
+        }).join('\n');
+        const proceed = confirm(`⚠ Scheduling conflict:\n\n${msgs}\n\nAssign anyway?`);
+        if (!proceed) { btn.disabled = false; btn.textContent = 'Add assignment'; return; }
+      }
+    } catch (err) { /* ignore conflict check errors, proceed */ }
+
     btn.textContent = 'Adding...';
 
     try {
