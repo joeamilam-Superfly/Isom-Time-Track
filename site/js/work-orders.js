@@ -166,18 +166,16 @@ async function renderMyWorkOrders(container) {
 
 function workOrderCardHtml(wo, myRole) {
   const isUnassigned = !wo.assignedTo;
-  const statusLabel = { open: 'Open', submitted: 'Pending review', ready_to_bill: 'Ready to bill', billed: 'Billed' }[wo.status] || wo.status;
+  const isEstimate = wo.isEstimate || false;
+  const statusLabel = { open: 'Open', submitted: 'Pending review', ready_to_bill: isEstimate ? 'Completed' : 'Ready to bill', billed: 'Billed' }[wo.status] || wo.status;
   const statusColor = { open: 'var(--amber-dark)', submitted: '#7c3aed', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)' }[wo.status];
   const canComplete = (wo.status === 'open' || wo.status === 'submitted') && (myRole === 'admin' || myRole === 'foreman');
   const canSubmit = wo.status === 'open' && myRole === 'employee' && wo.assignedTo?.id === state.employee.id;
-  const canBillCard = myRole === 'admin' && wo.status === 'ready_to_bill';
+  const canBillCard = myRole === 'admin' && wo.status === 'ready_to_bill' && !isEstimate;
   const canManage = myRole === 'admin' || myRole === 'foreman';
   const pendingReview = wo.status === 'submitted' && (myRole === 'admin' || myRole === 'foreman');
 
-  // Unassigned = amber tint, assigned = employee color
-  const cardBg = isUnassigned
-    ? '#fef3c7'
-    : (wo.assignedTo?.displayColor || 'var(--paper)');
+  const cardBg = isUnassigned ? '#fef3c7' : (wo.assignedTo?.displayColor || 'var(--paper)');
 
   const queueBadge = isUnassigned
     ? `<div style="background:#d97706;color:#fff;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;margin-bottom:6px;display:inline-block;">📋 Unassigned — available to grab</div>`
@@ -185,17 +183,21 @@ function workOrderCardHtml(wo, myRole) {
 
   return `
     <div class="day-stub" style="margin-bottom:10px; background:${cardBg}; border-radius:8px; overflow:hidden;">
-      <div class="day-stub-perf" style="background:${statusColor};"></div>
+      <div class="day-stub-perf" style="background:${isEstimate ? '#7c3aed' : statusColor};"></div>
       <div class="day-stub-body">
         <div class="day-stub-top">
-          <div class="day-stub-date">WO# ${escapeHtml(wo.woNumber)}</div>
-          <div style="font-size:12px; color:${statusColor}; font-weight:600;">${statusLabel}</div>
+          <div class="day-stub-date">${isEstimate ? '📋 Est#' : 'WO#'} ${escapeHtml(wo.woNumber)}</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            ${isEstimate ? `<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">ESTIMATE</span>` : ''}
+            <div style="font-size:12px; color:${isEstimate ? '#7c3aed' : statusColor}; font-weight:600;">${statusLabel}</div>
+          </div>
         </div>
         <div class="day-stub-meta">
           ${wo.jobLocation ? `<span>${escapeHtml(wo.jobLocation.name)}</span>` : ''}
           ${wo.scheduledDate ? `<span>Scheduled: ${wo.scheduledDate}</span>` : ''}
           ${wo.assignedTo ? `<span>${escapeHtml(wo.assignedTo.name)}</span>` : ''}
           ${wo.crew && wo.crew.length > 0 ? `<span>+${wo.crew.length} crew: ${wo.crew.map(c => escapeHtml(c.name.split(' ')[0])).join(', ')}</span>` : ''}
+          ${wo.linkedWoNumber ? `<span style="color:#7c3aed;font-weight:600;">→ WO# ${escapeHtml(wo.linkedWoNumber)}</span>` : ''}
         </div>
         ${wo.details ? `<div style="margin-top:6px; font-size:12px; color:var(--ink); white-space:pre-line; background:var(--paper-dim); border-radius:6px; padding:8px 10px;">${escapeHtml(wo.details)}</div>` : ''}
         ${pendingReview ? `<div style="background:#7c3aed;color:#fff;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:600;margin-bottom:6px;">⏳ Submitted by tech — awaiting your approval</div>` : ''}
@@ -206,7 +208,6 @@ function workOrderCardHtml(wo, myRole) {
           ${canSubmit ? `<button class="btn btn-sm btn-primary" data-wo-submit="${wo.id}">Submit for approval</button>` : ''}
           ${canComplete ? `<button class="btn btn-sm btn-primary" data-wo-complete="${wo.id}">${wo.status === 'submitted' ? 'Approve &amp; complete' : 'Mark complete'}</button>` : ''}
           ${canBillCard ? `<button class="btn btn-sm btn-primary" data-wo-bill="${wo.id}" style="background:#16a34a;">Mark as billed</button>` : ''}
-
           ${canManage && !isUnassigned && wo.selfAssignedAt ? `<button class="btn btn-sm btn-ghost" data-wo-return-queue="${wo.id}">Return to queue</button>` : ''}
           ${canManage ? `<button class="btn btn-sm btn-ghost" data-wo-edit="${wo.id}">Edit</button>` : ''}
         </div>
@@ -224,7 +225,7 @@ function showWorkOrderDetail(workOrderId, wos) {
   const canComplete = (wo.status === 'open' || wo.status === 'submitted') && (myRole === 'admin' || myRole === 'foreman');
   const canSubmit = wo.status === 'open' && myRole === 'employee' && wo.assignedTo?.id === state.employee.id;
   const canManage = myRole === 'admin' || myRole === 'foreman';
-  const canBill = myRole === 'admin' && wo.status === 'ready_to_bill';
+  const canBill = myRole === 'admin' && wo.status === 'ready_to_bill' && !wo.isEstimate;
   const canReopen = (wo.status === 'ready_to_bill' || wo.status === 'submitted') && (myRole === 'admin' || myRole === 'foreman');
   const pendingReview = wo.status === 'submitted' && (myRole === 'admin' || myRole === 'foreman');
 
@@ -456,6 +457,13 @@ function showCreateWorkOrderDialog() {
         <textarea id="wo-details" rows="5" placeholder="Address, phone number, job description, special instructions..."></textarea>
         <div class="screen-sub">Visible to the tech on their schedule without tapping.</div>
       </div>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;">
+          <input type="checkbox" id="wo-is-estimate" style="width:18px;height:18px;" />
+          This is an estimate
+        </label>
+        <div class="screen-sub">Estimates can be completed without an invoice.</div>
+      </div>
       <div id="wo-conflict-warning" style="display:none;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#92400e;"></div>
       <div id="wo-create-error"></div>
       <div class="btn-row" style="margin-top:8px;">
@@ -612,7 +620,7 @@ function showCreateWorkOrderDialog() {
       }
 
       btn.textContent = 'Creating...';
-      const created = await api('/work-orders', { method: 'POST', body: JSON.stringify({ companyId: state.activeCompanyId, woNumber, dateReceived, scheduledDate, jobLocationId, assignedToId, details, imageBase64, mimeType: imageMimeType }) });
+      const created = await api('/work-orders', { method: 'POST', body: JSON.stringify({ companyId: state.activeCompanyId, woNumber, dateReceived, scheduledDate, jobLocationId, assignedToId, details, imageBase64, mimeType: imageMimeType, isEstimate: overlay.querySelector('#wo-is-estimate')?.checked || false }) });
       // Save crew assignments if any were selected
       if (createCrewIds.size > 0 && created.workOrder?.id) {
         await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: created.workOrder.id, action: 'update_crew', employeeIds: [...createCrewIds] }) }).catch(() => {});
@@ -786,6 +794,21 @@ function showEditWorkOrderDialog(wo) {
         <input id="edit-wo-photo" type="file" accept="image/*" />
         <div class="screen-sub">Previous photo kept in history.</div>
       </div>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;">
+          <input type="checkbox" id="edit-wo-is-estimate" ${wo.isEstimate ? 'checked' : ''} style="width:18px;height:18px;" />
+          This is an estimate
+        </label>
+        <div class="screen-sub">Estimates can be completed without an invoice.</div>
+      </div>
+
+      <div class="field" id="edit-linked-wo-field" style="${wo.isEstimate ? '' : 'display:none;'}">
+        <label for="edit-linked-wo-number">Linked work order number (optional)</label>
+        <input id="edit-linked-wo-number" type="text" placeholder="Enter WO# when estimate converts to a work order" value="${wo.linkedWoNumber ? escapeHtml(wo.linkedWoNumber) : ''}" />
+        <div class="screen-sub">Links this estimate to the resulting work order for historical tracking.</div>
+      </div>
+
       <div id="wo-conflict-warning" style="display:none;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#92400e;"></div>
       <div id="edit-wo-error"></div>
       <div class="btn-row" style="margin-top:8px;">
@@ -799,6 +822,13 @@ function showEditWorkOrderDialog(wo) {
   const close = () => { if (document.body.contains(overlay)) document.body.removeChild(overlay); };
   overlay.querySelector('#edit-wo-close').addEventListener('click', close);
   overlay.querySelector('#edit-wo-cancel').addEventListener('click', close);
+
+  // Toggle linked WO field visibility based on estimate checkbox
+  const estimateCheck = overlay.querySelector('#edit-wo-is-estimate');
+  const linkedField = overlay.querySelector('#edit-linked-wo-field');
+  estimateCheck.addEventListener('change', () => {
+    linkedField.style.display = estimateCheck.checked ? '' : 'none';
+  });
 
   // Location autocomplete pre-filled with current location
   let editLocationId = wo.jobLocation?.id || null;
@@ -920,7 +950,7 @@ function showEditWorkOrderDialog(wo) {
     btn.disabled = true;
     btn.textContent = 'Saving...';
     try {
-      await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'update_details', woNumber, scheduledDate, jobLocationId, assignedToId, details }) });
+      await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'update_details', woNumber, scheduledDate, jobLocationId, assignedToId, details, isEstimate: overlay.querySelector('#edit-wo-is-estimate')?.checked || false, linkedWoNumber: overlay.querySelector('#edit-linked-wo-number')?.value.trim() || null }) });
       // Save crew assignments
       await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'update_crew', employeeIds: [...crewIds] }) });
       if (newImageBase64) {
