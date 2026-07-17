@@ -226,7 +226,7 @@ function showWorkOrderDetail(workOrderId, wos) {
   const canSubmit = wo.status === 'open' && myRole === 'employee' && wo.assignedTo?.id === state.employee.id;
   const canManage = myRole === 'admin' || myRole === 'foreman';
   const canBill = myRole === 'admin' && wo.status === 'ready_to_bill' && !wo.isEstimate;
-  const canReopen = (wo.status === 'ready_to_bill' || wo.status === 'submitted') && (myRole === 'admin' || myRole === 'foreman');
+  const canReopen = (wo.status === 'ready_to_bill' || wo.status === 'submitted' || (wo.status === 'billed' && wo.isEstimate)) && (myRole === 'admin' || myRole === 'foreman');
   const pendingReview = wo.status === 'submitted' && (myRole === 'admin' || myRole === 'foreman');
 
   const overlay = document.createElement('div');
