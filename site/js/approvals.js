@@ -540,7 +540,7 @@ async function loadWorkOrdersSection() {
       ${canCreate ? `<button class="btn btn-amber btn-sm" id="wo-create-btn">+ New work order</button>` : ''}
     </div>
     <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
-      <input id="wo-search-box" type="text" placeholder="Search WO#, location, employee..." style="flex:2; min-width:160px; padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;" />
+      <input id="wo-search-box" type="text" placeholder="Search WO#, invoice#, location, employee..." style="flex:2; min-width:160px; padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px;" />
       <select id="wo-sort-select" style="flex:1; min-width:130px; padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px; background:#fff;">
         <option value="newest">Newest first</option>
         <option value="due_date">By due date</option>
@@ -556,24 +556,24 @@ async function loadWorkOrdersSection() {
   }
 
   try {
-    const [openData, billingData] = await Promise.all([
+    const [openData, billingData, billedData] = await Promise.all([
       api(withCompany('/work-orders?status=open')),
       myRole === 'admin' ? api(withCompany('/work-orders?status=ready_to_bill')) : Promise.resolve({ workOrders: [] }),
+      myRole === 'admin' ? api(withCompany('/work-orders?status=billed')) : Promise.resolve({ workOrders: [] }),
     ]);
 
     let allWos = [...(billingData.workOrders || []), ...(openData.workOrders || [])];
+    const billedWos = billedData.workOrders || [];
 
     // Foremen only see WOs assigned to themselves or their crew.
     // Admins see all WOs. The backend returns all for foremen so the
     // scheduling grid badges work, but the card list should be scoped.
     if (myRole === 'foreman') {
-      // Get this foreman's crew IDs from the people list already fetched for the grid
       const crewIds = new Set(
         (state.lastPeopleList || [])
           .filter(p => p.foremanId === state.employee.id || p.id === state.employee.id)
           .map(p => p.id)
       );
-      // If crew list isn't available yet, fall back to just showing own WOs
       if (crewIds.size > 0) {
         allWos = allWos.filter(wo =>
           wo.assignedTo?.id === state.employee.id ||
@@ -596,7 +596,8 @@ async function loadWorkOrdersSection() {
         wo.woNumber?.toLowerCase().includes(q) ||
         wo.jobLocation?.name?.toLowerCase().includes(q) ||
         wo.assignedTo?.name?.toLowerCase().includes(q) ||
-        wo.details?.toLowerCase().includes(q)
+        wo.details?.toLowerCase().includes(q) ||
+        wo.invoiceNumber?.toLowerCase().includes(q)
       ) : wos;
 
       if (sort === 'unassigned') {
@@ -654,6 +655,42 @@ async function loadWorkOrdersSection() {
       }
 
       woContent.innerHTML = html;
+
+      // Also show matching archived/billed WOs when there's a search query
+      const q = document.getElementById('wo-search-box')?.value.trim().toLowerCase() || '';
+      const archiveSection = document.getElementById('wo-archive-inline');
+      if (q && (myRole === 'admin')) {
+        const matchedBilled = billedWos.filter(wo =>
+          wo.woNumber?.toLowerCase().includes(q) ||
+          wo.invoiceNumber?.toLowerCase().includes(q) ||
+          wo.jobLocation?.name?.toLowerCase().includes(q) ||
+          wo.assignedTo?.name?.toLowerCase().includes(q)
+        );
+        if (matchedBilled.length > 0) {
+          let archiveEl = document.getElementById('wo-archive-inline');
+          if (!archiveEl) {
+            archiveEl = document.createElement('div');
+            archiveEl.id = 'wo-archive-inline';
+            woContent.parentNode.insertBefore(archiveEl, woContent.nextSibling);
+          }
+          archiveEl.innerHTML = `
+            <div style="display:flex;align-items:center;gap:8px;margin:16px 0 8px;">
+              <div style="font-weight:700;font-size:14px;color:var(--ink-soft);">Archived (${matchedBilled.length})</div>
+              <div style="flex:1;height:1px;background:var(--line);"></div>
+            </div>
+            ${matchedBilled.map(wo => workOrderCardHtml(wo, myRole)).join('')}
+          `;
+          archiveEl.querySelectorAll('[data-wo-view]').forEach(btn => {
+            btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-wo-view'), [...allWos, ...billedWos]));
+          });
+        } else {
+          const archiveEl = document.getElementById('wo-archive-inline');
+          if (archiveEl) archiveEl.innerHTML = '';
+        }
+      } else {
+        const archiveEl = document.getElementById('wo-archive-inline');
+        if (archiveEl) archiveEl.innerHTML = '';
+      }
       woContent.querySelectorAll('[data-wo-view]').forEach(btn => {
         btn.addEventListener('click', () => showWorkOrderDetail(btn.getAttribute('data-wo-view'), allWos));
       });
