@@ -407,13 +407,16 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: JSON.stringify({ ok: true }) };
     }
 
-    // ---- reopen (foreman/admin only, only from ready_to_bill — not after billing) ----
+    // ---- reopen (foreman/admin only) ----
     if (action === 'reopen') {
       if (myRole.role === 'employee') return forbidden('Only foremen and admins can reopen work orders');
-      const { data: current } = await supabase.from('work_orders').select('status, invoice_number').eq('id', workOrderId).single();
+      const { data: current } = await supabase.from('work_orders').select('status, invoice_number, is_estimate').eq('id', workOrderId).single();
       if (!current) return { statusCode: 404, body: JSON.stringify({ error: 'Work order not found' }) };
-      if (current.status === 'billed') return { statusCode: 409, body: JSON.stringify({ error: 'Cannot reopen a billed work order — it has already been invoiced' }) };
-      if (current.status !== 'ready_to_bill' && current.status !== 'submitted') {
+      // Block reopening billed WOs that have an invoice — estimates can be reopened from billed since they have no invoice
+      if (current.status === 'billed' && !current.is_estimate && current.invoice_number) {
+        return { statusCode: 409, body: JSON.stringify({ error: 'Cannot reopen a billed work order — it has already been invoiced' }) };
+      }
+      if (current.status !== 'ready_to_bill' && current.status !== 'submitted' && current.status !== 'billed') {
         return { statusCode: 409, body: JSON.stringify({ error: 'Work order is already open' }) };
       }
       const { error } = await supabase
@@ -467,12 +470,14 @@ exports.handler = async (event) => {
         return { statusCode: 409, body: JSON.stringify({ error: 'This work order is already completed' }) };
       }
       const now = new Date().toISOString();
+      // Estimates skip ready_to_bill — no invoice needed, close directly to billed
+      const newStatus = wo.is_estimate ? 'billed' : 'ready_to_bill';
       const { error } = await supabase
         .from('work_orders')
-        .update({ status: 'ready_to_bill', completed_at: now, completed_by_id: auth.employeeId, updated_at: now })
+        .update({ status: newStatus, completed_at: now, completed_by_id: auth.employeeId, updated_at: now })
         .eq('id', workOrderId);
       if (error) return errorResponse(error);
-      return { statusCode: 200, body: JSON.stringify({ ok: true, readyToBill: true }) };
+      return { statusCode: 200, body: JSON.stringify({ ok: true, readyToBill: !wo.is_estimate, isEstimate: !!wo.is_estimate }) };
     }
 
     // ---- mark billed (admin only) — requires invoice number ----
