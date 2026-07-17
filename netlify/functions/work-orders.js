@@ -20,6 +20,7 @@ exports.handler = async (event) => {
       .from('work_orders')
       .select(`
         id, wo_number, date_received, scheduled_date, status, details, invoice_number,
+        is_estimate, linked_wo_number,
         queue_visible, self_assigned_at, completed_at, created_at, updated_at,
         job_locations(id, name),
         employees!work_orders_assigned_to_id_fkey(id, first_name, last_name),
@@ -171,6 +172,8 @@ exports.handler = async (event) => {
       completedBy: w.completed_by ? { id: w.completed_by.id, name: `${w.completed_by.first_name} ${w.completed_by.last_name}` } : null,
       queueVisible: w.queue_visible || false,
       selfAssignedAt: w.self_assigned_at || null,
+      isEstimate: w.is_estimate || false,
+      linkedWoNumber: w.linked_wo_number || null,
       invoiceNumber: w.invoice_number || null,
       currentPhoto: (photoMap[w.id] || []).find(p => p.isCurrent) || null,
       allPhotos: photoMap[w.id] || [],
@@ -188,7 +191,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid request body' }) };
     }
 
-    const { companyId, jobLocationId, woNumber, dateReceived, scheduledDate, assignedToId, imageBase64, mimeType, details } = body;
+    const { companyId, jobLocationId, woNumber, dateReceived, scheduledDate, assignedToId, imageBase64, mimeType, details, isEstimate, linkedWoNumber } = body;
     if (!companyId) return { statusCode: 400, body: JSON.stringify({ error: 'companyId is required' }) };
     if (!woNumber) return { statusCode: 400, body: JSON.stringify({ error: 'Work order number is required' }) };
     if (!dateReceived) return { statusCode: 400, body: JSON.stringify({ error: 'Date received is required' }) };
@@ -197,7 +200,6 @@ exports.handler = async (event) => {
     if (!myRole) return forbidden('You do not have access to this company');
     if (myRole.role === 'employee') return forbidden('Only foremen and admins can create work orders');
 
-    // Create the work order record
     const { data: wo, error: woError } = await supabase
       .from('work_orders')
       .insert({
@@ -208,6 +210,8 @@ exports.handler = async (event) => {
         scheduled_date: scheduledDate || null,
         assigned_to_id: assignedToId || null,
         details: details || null,
+        is_estimate: !!isEstimate,
+        linked_wo_number: linkedWoNumber || null,
         status: 'open',
         created_by_id: auth.employeeId,
       })
@@ -308,13 +312,15 @@ exports.handler = async (event) => {
     // ---- update details (scheduled date, location, assignment, notes) ----
     if (action === 'update_details') {
       if (myRole.role === 'employee') return forbidden('Only foremen and admins can update work orders');
-      const { jobLocationId, scheduledDate: newScheduledDate, assignedToId: newAssignedToId, details: newDetails, woNumber: newWoNumber } = body;
+      const { jobLocationId, scheduledDate: newScheduledDate, assignedToId: newAssignedToId, details: newDetails, woNumber: newWoNumber, isEstimate: newIsEstimate, linkedWoNumber: newLinkedWoNumber } = body;
       const updateFields = { updated_at: new Date().toISOString() };
       if (newWoNumber !== undefined && newWoNumber.trim()) updateFields.wo_number = newWoNumber.trim();
       if (newScheduledDate !== undefined) updateFields.scheduled_date = newScheduledDate || null;
       if (jobLocationId !== undefined) updateFields.job_location_id = jobLocationId || null;
       if (newAssignedToId !== undefined) updateFields.assigned_to_id = newAssignedToId || null;
       if (newDetails !== undefined) updateFields.details = newDetails || null;
+      if (newIsEstimate !== undefined) updateFields.is_estimate = !!newIsEstimate;
+      if (newLinkedWoNumber !== undefined) updateFields.linked_wo_number = newLinkedWoNumber || null;
       const { error } = await supabase.from('work_orders').update(updateFields).eq('id', workOrderId);
       if (error) return errorResponse(error);
       return { statusCode: 200, body: JSON.stringify({ ok: true }) };
