@@ -4,13 +4,15 @@
 // tab - this file is specifically the employee's own view.
 
 async function showUpcomingScheduleDialog() {
+  const canCreateWo = currentCompanyRole() === 'admin' || currentCompanyRole() === 'foreman';
+
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:flex-end;justify-content:center;z-index:150;';
   overlay.innerHTML = `
     <div style="background:#fff;border-radius:16px 16px 0 0;width:100%;max-width:480px;max-height:82vh;display:flex;flex-direction:column;">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line);">
         <div style="font-weight:700;font-size:16px;">My Work Orders</div>
-        ${(currentCompanyRole() === 'admin' || currentCompanyRole() === 'foreman') ? `<button id="wo-dialog-new-btn" class="btn btn-amber btn-sm">+ New WO</button>` : ''}
+        ${canCreateWo ? `<button id="wo-dialog-new-btn" class="btn btn-amber btn-sm">+ New WO</button>` : ''}
         <button id="schedule-dialog-close" style="background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--ink-soft);padding:4px 8px;">&times;</button>
       </div>
       <div id="upcoming-schedule-list" style="flex:1;overflow-y:auto;padding:16px 18px;">${loadingHtml()}</div>
