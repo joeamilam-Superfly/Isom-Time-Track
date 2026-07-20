@@ -61,9 +61,9 @@ function renderTeamList(people) {
   const myTeam = people.filter(p => p.isMyTeam !== false);
   const others = people.filter(p => p.isMyTeam === false);
 
-  function personCardHtml(p) {
+  function personCardHtml(p, isMyTeam) {
     return `
-      <div class="day-stub" data-person-id="${p.id}" style="cursor:pointer; ${p.roleActive === false ? 'opacity:0.55;' : ''}">
+      <div class="day-stub" data-person-id="${p.id}" data-is-my-team="${isMyTeam}" style="cursor:pointer; ${p.roleActive === false ? 'opacity:0.55;' : ''}">
         <div class="day-stub-perf"></div>
         <div class="day-stub-body">
           <div class="day-stub-top">
@@ -83,16 +83,23 @@ function renderTeamList(people) {
     if (others.length > 0) {
       html += `<div style="font-weight:700;font-size:13px;color:var(--ink-soft);margin:0 0 8px;letter-spacing:0.05em;">MY TEAM</div>`;
     }
-    html += myTeam.map(personCardHtml).join('');
+    html += myTeam.map(p => personCardHtml(p, true)).join('');
   }
   if (others.length > 0) {
     html += `<div style="font-weight:700;font-size:13px;color:var(--ink-soft);margin:16px 0 8px;letter-spacing:0.05em;">OTHER EMPLOYEES</div>`;
-    html += others.map(personCardHtml).join('');
+    html += others.map(p => personCardHtml(p, false)).join('');
   }
   el.innerHTML = html;
 
   el.querySelectorAll('[data-person-id]').forEach(card => {
-    card.addEventListener('click', () => render('team', { employeeId: card.getAttribute('data-person-id') }));
+    const personId = card.getAttribute('data-person-id');
+    const isMyTeam = card.getAttribute('data-is-my-team') === 'true';
+    const myRole = currentCompanyRole();
+    if (myRole === 'foreman' && !isMyTeam) {
+      card.style.cursor = 'default';
+      return; // foremen cannot drill into other crews' employee details
+    }
+    card.addEventListener('click', () => render('team', { employeeId: personId }));
   });
 }
 
