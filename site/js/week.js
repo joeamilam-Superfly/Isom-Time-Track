@@ -17,10 +17,10 @@ async function renderWeek(opts) {
       <div id="week-summary"></div>
       <div id="week-days">${loadingHtml()}</div>
     </main>
-    <div class="bottom-bar" style="display:flex; gap:10px;">
-      <button class="btn btn-ghost" id="view-schedule-btn" style="flex:1;">My work orders</button>
-      ${isManager ? `<button class="btn btn-ghost" id="new-wo-quick-btn" style="flex:1;">+ New WO</button>` : ''}
-      <button class="btn btn-amber" id="add-today-btn" style="flex:1.5;">+ Log today's hours</button>
+    <div class="bottom-bar" style="display:flex; gap:8px;">
+      <button class="btn btn-ghost" id="view-schedule-btn" style="flex:1; font-size:13px;">My WOs</button>
+      ${isManager ? `<button class="btn btn-ghost" id="new-wo-quick-btn" style="flex:1; font-size:13px;">+ New WO</button>` : ''}
+      <button class="btn btn-amber" id="add-today-btn" style="flex:1.5; font-size:13px;">+ Log hours</button>
     </div>
   `;
 
@@ -89,6 +89,7 @@ async function renderWeek(opts) {
   checkPendingLeaveRequests();
   checkPendingWorkOrders();
   checkPendingCrewApprovals();
+  checkBroadcastMessages();
 }
 
 function renderWeekSummary(summary) {
