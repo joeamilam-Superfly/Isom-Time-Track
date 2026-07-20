@@ -716,6 +716,23 @@ async function loadWorkOrdersSection() {
         const wo = allWos.find(w => w.id === btn.getAttribute('data-wo-edit'));
         if (wo) btn.addEventListener('click', () => showEditWorkOrderDialog(wo));
       });
+      woContent.querySelectorAll('[data-wo-cancel]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const woId = btn.getAttribute('data-wo-cancel');
+          const note = prompt('Reason for cancellation (optional):');
+          if (note === null) return;
+          btn.disabled = true;
+          btn.textContent = 'Cancelling...';
+          try {
+            await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: woId, action: 'cancel', cancellationNote: note || '' }) });
+            loadWorkOrdersSection();
+          } catch (err) {
+            alert(err.message);
+            btn.disabled = false;
+            btn.textContent = 'Cancel WO';
+          }
+        });
+      });
       woContent.querySelectorAll('[data-wo-return-queue]').forEach(btn => {
         btn.addEventListener('click', async () => {
           if (!confirm('Return this work order to the unassigned queue?')) return;
