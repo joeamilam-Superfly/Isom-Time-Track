@@ -37,6 +37,12 @@ async function renderAdmin(opts) {
       <button class="btn btn-ghost btn-sm" id="find-duplicates-btn" style="margin-bottom:14px;">Find possible duplicates</button>
       <div id="duplicates-section"></div>
       <div id="job-locations-admin">${loadingHtml()}</div>
+
+      <div class="screen-sub" style="font-weight:600; color:var(--ink); margin: 24px 0 8px;">📢 Broadcast Messages</div>
+      <div id="broadcast-section">
+        <button class="btn btn-amber btn-sm" id="new-message-btn" style="margin-bottom:14px;">+ New message</button>
+        <div id="broadcast-message-list">${loadingHtml()}</div>
+      </div>
     </main>
   `;
 
@@ -64,6 +70,8 @@ async function renderAdmin(opts) {
   document.getElementById('export-btn').addEventListener('click', () => exportWeekCsv(weekOf, summaries));
   document.getElementById('export-pdf-btn').addEventListener('click', () => downloadReceiptPdf(weekOf));
   document.getElementById('find-duplicates-btn').addEventListener('click', loadDuplicateGroups);
+  document.getElementById('new-message-btn').addEventListener('click', () => showMessageDialog(null));
+  loadBroadcastMessages();
 
   // Populate receipts location filter and wire load button
   api(withCompany('/job-locations')).then(d => {
@@ -694,4 +702,198 @@ async function loadAdminReceipts() {
   } catch (err) {
     gridEl.innerHTML = errorHtml(err.message);
   }
+}
+
+// ---- Broadcast Messages ----
+
+async function loadBroadcastMessages() {
+  const listEl = document.getElementById('broadcast-message-list');
+  if (!listEl) return;
+  try {
+    const data = await api(withCompany('/broadcast-messages'));
+    const messages = data.messages || [];
+    if (messages.length === 0) {
+      listEl.innerHTML = '<div class="screen-sub">No messages yet. Create one to notify your team.</div>';
+      return;
+    }
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    listEl.innerHTML = messages.map(m => {
+      const schedule = m.is_recurring
+        ? `Recurring ${m.recurrence_type}${m.recurrence_type === 'weekly' ? ' (' + (m.recurrence_days || []).map(d => dayNames[d]).join(', ') + ')' : ''}`
+        : `One-time${m.send_once_date ? ' — ' + m.send_once_date : ''}`;
+      const recipients = m.recipient_type === 'all' ? 'All employees' : `${(m.recipient_ids || []).length} specific employee(s)`;
+      return `
+        <div style="border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:10px;background:${m.active ? 'var(--paper)' : 'var(--paper-dim)'};">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+            <div style="font-weight:700;font-size:14px;">${m.title ? escapeHtml(m.title) : 'Message'}</div>
+            <span style="font-size:11px;font-weight:600;color:${m.active ? '#16a34a' : 'var(--ink-soft)'};">${m.active ? 'Active' : 'Inactive'}</span>
+          </div>
+          <div style="font-size:13px;color:var(--ink);margin-bottom:6px;background:var(--paper-dim);border-radius:6px;padding:8px 10px;">${escapeHtml(m.message)}</div>
+          <div style="font-size:11px;color:var(--ink-soft);">${schedule} &middot; ${recipients}</div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-ghost" data-msg-edit="${m.id}">Edit</button>
+            <button class="btn btn-sm btn-ghost" data-msg-toggle="${m.id}" data-msg-active="${m.active}">${m.active ? 'Deactivate' : 'Activate'}</button>
+            <button class="btn btn-sm btn-ghost" data-msg-delete="${m.id}" style="color:#dc2626;border-color:#dc2626;">Delete</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    listEl.querySelectorAll('[data-msg-edit]').forEach(btn => {
+      const msg = messages.find(m => m.id === btn.getAttribute('data-msg-edit'));
+      if (msg) btn.addEventListener('click', () => showMessageDialog(msg));
+    });
+    listEl.querySelectorAll('[data-msg-toggle]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const active = btn.getAttribute('data-msg-active') === 'true';
+        await api('/broadcast-messages', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, messageId: btn.getAttribute('data-msg-toggle'), active: !active }) });
+        loadBroadcastMessages();
+      });
+    });
+    listEl.querySelectorAll('[data-msg-delete]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this message?')) return;
+        await api('/broadcast-messages', { method: 'DELETE', body: JSON.stringify({ companyId: state.activeCompanyId, messageId: btn.getAttribute('data-msg-delete') }) });
+        loadBroadcastMessages();
+      });
+    });
+  } catch (err) {
+    listEl.innerHTML = errorHtml(err.message);
+  }
+}
+
+async function showMessageDialog(existing) {
+  let allPeople = [];
+  try {
+    const d = await api(withCompany('/dashboard'));
+    allPeople = (d.people || []).filter(p => p.roleActive !== false);
+  } catch (e) {}
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:150;padding:20px;';
+  const isRecurring = existing?.is_recurring || false;
+  const recType = existing?.recurrence_type || 'daily';
+  const recDays = existing?.recurrence_days || [];
+  const recipType = existing?.recipient_type || 'all';
+  const recipIds = existing?.recipient_ids || [];
+
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;width:100%;max-width:500px;max-height:90vh;overflow-y:auto;padding:20px;">
+      <div style="font-weight:700;font-size:18px;margin-bottom:16px;">${existing ? 'Edit message' : 'New broadcast message'}</div>
+
+      <div class="field">
+        <label>Title (optional)</label>
+        <input id="msg-title" type="text" placeholder="e.g. Safety reminder" value="${existing?.title ? escapeHtml(existing.title) : ''}" />
+      </div>
+
+      <div class="field">
+        <label>Message</label>
+        <textarea id="msg-body" rows="4" placeholder="Type your message here...">${existing?.message ? escapeHtml(existing.message) : ''}</textarea>
+      </div>
+
+      <div class="field">
+        <label>Recipients</label>
+        <select id="msg-recipient-type" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:13px;margin-bottom:8px;">
+          <option value="all" ${recipType === 'all' ? 'selected' : ''}>All employees</option>
+          <option value="specific" ${recipType === 'specific' ? 'selected' : ''}>Specific employees</option>
+        </select>
+        <div id="msg-specific-people" style="${recipType === 'specific' ? '' : 'display:none;'}border:1px solid var(--line);border-radius:8px;overflow:hidden;max-height:180px;overflow-y:auto;">
+          ${allPeople.map(p => `
+            <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);cursor:pointer;font-size:13px;">
+              <input type="checkbox" value="${p.id}" ${recipIds.includes(p.id) ? 'checked' : ''} style="width:16px;height:16px;" />
+              ${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)} (${p.role})
+            </label>`).join('')}
+        </div>
+      </div>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;">
+          <input type="checkbox" id="msg-is-recurring" ${isRecurring ? 'checked' : ''} style="width:18px;height:18px;" />
+          Recurring message
+        </label>
+      </div>
+
+      <div id="msg-recurring-options" style="${isRecurring ? '' : 'display:none;'}">
+        <div class="field">
+          <label>Repeat</label>
+          <select id="msg-recurrence-type" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:13px;">
+            <option value="daily" ${recType === 'daily' ? 'selected' : ''}>Daily</option>
+            <option value="weekly" ${recType === 'weekly' ? 'selected' : ''}>Weekly (select days)</option>
+            <option value="monthly" ${recType === 'monthly' ? 'selected' : ''}>Monthly (select days of month)</option>
+          </select>
+        </div>
+        <div id="msg-weekly-days" style="${recType === 'weekly' ? '' : 'display:none;'}display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+          ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d,i) => `
+            <label style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;">
+              <input type="checkbox" value="${i}" ${recDays.includes(i) ? 'checked' : ''} style="width:16px;height:16px;" />
+              <span style="font-size:11px;">${d}</span>
+            </label>`).join('')}
+        </div>
+      </div>
+
+      <div id="msg-once-options" style="${isRecurring ? 'display:none;' : ''}">
+        <div class="field">
+          <label>Send date</label>
+          <input id="msg-send-date" type="date" value="${existing?.send_once_date || todayStr()}" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:13px;" />
+        </div>
+      </div>
+
+      <div id="msg-error" style="color:#dc2626;font-size:13px;margin-bottom:8px;"></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="msg-cancel">Cancel</button>
+        <button class="btn btn-primary" id="msg-save">${existing ? 'Save changes' : 'Send message'}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => document.body.removeChild(overlay);
+  overlay.querySelector('#msg-cancel').addEventListener('click', close);
+
+  overlay.querySelector('#msg-recipient-type').addEventListener('change', e => {
+    overlay.querySelector('#msg-specific-people').style.display = e.target.value === 'specific' ? '' : 'none';
+  });
+  overlay.querySelector('#msg-is-recurring').addEventListener('change', e => {
+    overlay.querySelector('#msg-recurring-options').style.display = e.target.checked ? '' : 'none';
+    overlay.querySelector('#msg-once-options').style.display = e.target.checked ? 'none' : '';
+  });
+  overlay.querySelector('#msg-recurrence-type').addEventListener('change', e => {
+    overlay.querySelector('#msg-weekly-days').style.display = e.target.value === 'weekly' ? '' : 'none';
+  });
+
+  overlay.querySelector('#msg-save').addEventListener('click', async () => {
+    const message = overlay.querySelector('#msg-body').value.trim();
+    const title = overlay.querySelector('#msg-title').value.trim();
+    const recipientType = overlay.querySelector('#msg-recipient-type').value;
+    const isRecurringChecked = overlay.querySelector('#msg-is-recurring').checked;
+    const recurrenceType = overlay.querySelector('#msg-recurrence-type').value;
+    const sendOnceDate = overlay.querySelector('#msg-send-date')?.value || null;
+    const errorEl = overlay.querySelector('#msg-error');
+
+    if (!message) { errorEl.textContent = 'Message is required.'; return; }
+
+    const recipientIds = recipientType === 'specific'
+      ? [...overlay.querySelectorAll('#msg-specific-people input:checked')].map(cb => cb.value)
+      : null;
+    if (recipientType === 'specific' && (!recipientIds || recipientIds.length === 0)) {
+      errorEl.textContent = 'Select at least one recipient.'; return;
+    }
+
+    const recurrenceDays = isRecurringChecked && recurrenceType === 'weekly'
+      ? [...overlay.querySelectorAll('#msg-weekly-days input:checked')].map(cb => parseInt(cb.value))
+      : null;
+
+    const payload = { companyId: state.activeCompanyId, message, title: title || null, recipientType, recipientIds, isRecurring: isRecurringChecked, recurrenceType: isRecurringChecked ? recurrenceType : null, recurrenceDays, sendOnceDate: !isRecurringChecked ? sendOnceDate : null };
+    if (existing) payload.messageId = existing.id;
+
+    const btn = overlay.querySelector('#msg-save');
+    btn.disabled = true; btn.textContent = 'Saving...';
+    try {
+      await api('/broadcast-messages', { method: existing ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
+      close();
+      loadBroadcastMessages();
+    } catch (err) {
+      errorEl.textContent = err.message;
+      btn.disabled = false; btn.textContent = existing ? 'Save changes' : 'Send message';
+    }
+  });
 }
