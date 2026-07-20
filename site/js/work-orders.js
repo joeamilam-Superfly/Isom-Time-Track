@@ -152,6 +152,23 @@ async function renderMyWorkOrders(container) {
       const wo = wos.find(w => w.id === btn.getAttribute('data-wo-edit'));
       if (wo) btn.addEventListener('click', () => showEditWorkOrderDialog(wo));
     });
+    container.querySelectorAll('[data-wo-cancel]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const woId = btn.getAttribute('data-wo-cancel');
+        const note = prompt('Reason for cancellation (optional):');
+        if (note === null) return; // user hit Cancel on prompt
+        btn.disabled = true;
+        btn.textContent = 'Cancelling...';
+        try {
+          await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: woId, action: 'cancel', cancellationNote: note || '' }) });
+          await renderMyWorkOrders(container);
+        } catch (err) {
+          alert(err.message);
+          btn.disabled = false;
+          btn.textContent = 'Cancel WO';
+        }
+      });
+    });
     container.querySelectorAll('[data-wo-return-queue]').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (!confirm('Return this work order to the unassigned queue?')) return;
@@ -167,12 +184,14 @@ async function renderMyWorkOrders(container) {
 function workOrderCardHtml(wo, myRole) {
   const isUnassigned = !wo.assignedTo && (!wo.crew || wo.crew.length === 0);
   const isEstimate = wo.isEstimate || false;
-  const statusLabel = { open: 'Open', submitted: 'Pending review', ready_to_bill: isEstimate ? 'Ready to complete' : 'Ready to bill', billed: isEstimate ? 'Completed' : 'Billed' }[wo.status] || wo.status;
-  const statusColor = { open: 'var(--amber-dark)', submitted: '#7c3aed', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)' }[wo.status];
+  const statusLabel = { open: 'Open', submitted: 'Pending review', ready_to_bill: isEstimate ? 'Ready to complete' : 'Ready to bill', billed: isEstimate ? 'Completed' : 'Billed', cancelled: 'Cancelled' }[wo.status] || wo.status;
+  const statusColor = { open: 'var(--amber-dark)', submitted: '#7c3aed', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)', cancelled: '#dc2626' }[wo.status];
   const canComplete = (wo.status === 'open' || wo.status === 'submitted') && (myRole === 'admin' || myRole === 'foreman');
   const canSubmit = wo.status === 'open' && myRole === 'employee' && wo.assignedTo?.id === state.employee.id;
   const canBillCard = myRole === 'admin' && wo.status === 'ready_to_bill' && !isEstimate;
+  const canCancel = (myRole === 'admin' || myRole === 'foreman') && wo.status !== 'cancelled' && wo.status !== 'billed';
   const canManage = myRole === 'admin' || myRole === 'foreman';
+  const canReopen = (wo.status === 'ready_to_bill' || wo.status === 'submitted' || (wo.status === 'billed' && wo.isEstimate) || wo.status === 'cancelled') && (myRole === 'admin' || myRole === 'foreman');
   const pendingReview = wo.status === 'submitted' && (myRole === 'admin' || myRole === 'foreman');
 
   const cardBg = isUnassigned ? '#fef3c7' : (wo.assignedTo?.displayColor || 'var(--paper)');
@@ -209,6 +228,7 @@ function workOrderCardHtml(wo, myRole) {
           ${canComplete ? `<button class="btn btn-sm btn-primary" data-wo-complete="${wo.id}">${wo.status === 'submitted' ? 'Approve &amp; complete' : 'Mark complete'}</button>` : ''}
           ${canBillCard ? `<button class="btn btn-sm btn-primary" data-wo-bill="${wo.id}" style="background:#16a34a;">Mark as billed</button>` : ''}
           ${canManage && !isUnassigned && wo.selfAssignedAt ? `<button class="btn btn-sm btn-ghost" data-wo-return-queue="${wo.id}">Return to queue</button>` : ''}
+          ${canCancel ? `<button class="btn btn-sm btn-ghost" data-wo-cancel="${wo.id}" style="color:#dc2626;border-color:#dc2626;">Cancel WO</button>` : ''}
           ${canManage ? `<button class="btn btn-sm btn-ghost" data-wo-edit="${wo.id}">Edit</button>` : ''}
         </div>
       </div>
@@ -226,7 +246,7 @@ function showWorkOrderDetail(workOrderId, wos) {
   const canSubmit = wo.status === 'open' && myRole === 'employee' && wo.assignedTo?.id === state.employee.id;
   const canManage = myRole === 'admin' || myRole === 'foreman';
   const canBill = myRole === 'admin' && wo.status === 'ready_to_bill' && !wo.isEstimate;
-  const canReopen = (wo.status === 'ready_to_bill' || wo.status === 'submitted' || (wo.status === 'billed' && wo.isEstimate)) && (myRole === 'admin' || myRole === 'foreman');
+  const canReopen = (wo.status === 'ready_to_bill' || wo.status === 'submitted' || (wo.status === 'billed' && wo.isEstimate) || wo.status === 'cancelled') && (myRole === 'admin' || myRole === 'foreman');
   const pendingReview = wo.status === 'submitted' && (myRole === 'admin' || myRole === 'foreman');
 
   const overlay = document.createElement('div');
