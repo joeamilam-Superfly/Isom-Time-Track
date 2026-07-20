@@ -194,7 +194,48 @@ function boot() {
 
 window.addEventListener('DOMContentLoaded', boot);
 
-// ---- Tab focus refresh ----
+// ---- Broadcast message modal ----
+// Called after each render. Shows unread messages as a modal the employee
+// must acknowledge before using the app.
+async function checkBroadcastMessages() {
+  if (!state.token || !state.employee || !state.activeCompanyId) return;
+  if (state.view === 'login') return;
+
+  try {
+    const data = await api(withCompany('/broadcast-messages?unread=true'));
+    const messages = data.messages || [];
+    if (messages.length === 0) return;
+
+    // Show first unread message — once dismissed check for the next
+    const msg = messages[0];
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.7);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:16px;width:100%;max-width:420px;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <span style="font-size:24px;">📢</span>
+          <div style="font-weight:700;font-size:17px;">${msg.title ? escapeHtml(msg.title) : 'Message from management'}</div>
+        </div>
+        <div style="font-size:14px;line-height:1.6;white-space:pre-line;background:var(--paper-dim);border-radius:8px;padding:12px 14px;margin-bottom:16px;">${escapeHtml(msg.message)}</div>
+        <button class="btn btn-primary" id="msg-acknowledge" style="width:100%;">Got it</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#msg-acknowledge').addEventListener('click', async () => {
+      document.body.removeChild(overlay);
+      // Mark as read
+      await api(`/broadcast-messages?action=mark_read`, {
+        method: 'POST',
+        body: JSON.stringify({ companyId: state.activeCompanyId, messageId: msg.id }),
+      }).catch(() => {});
+      // Check if there are more unread messages
+      if (messages.length > 1) checkBroadcastMessages();
+    });
+  } catch (err) {
+    // Silently fail — don't block the app if messages can't load
+  }
+}
 // When user returns to the tab after 5+ minutes away, silently refresh
 // the current view — but only if no dialog/overlay is open.
 let lastActiveTime = Date.now();
