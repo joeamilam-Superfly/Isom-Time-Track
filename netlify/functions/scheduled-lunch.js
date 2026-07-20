@@ -59,22 +59,24 @@ exports.handler = async (event) => {
   );
 
   const forceRun = event?.queryStringParameters?.force === 'true';
-  if (etHour !== 18 && !forceRun) {
+  if (etHour !== 0 && !forceRun) {
     return {
       statusCode: 200,
-      body: JSON.stringify({ skipped: true, reason: `Current ET hour is ${etHour}, not 18` }),
+      body: JSON.stringify({ skipped: true, reason: `Current ET hour is ${etHour}, not 0 (midnight)` }),
     };
   }
 
-  // Work against yesterday ET - by 6pm the previous day's entries
-  // should all be in, and we're adding the lunch for that completed day.
+  // Work against yesterday ET - at midnight the previous day's entries
+  // are fully in, giving employees until end of day to log their own lunch
+  // before the auto-add fires. This prevents duplicate lunches when an
+  // employee logs their own lunch segment after 6pm.
   const yesterday = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
     new Date(now.getTime() - 24 * 60 * 60 * 1000)
   );
 
   const { data: memberships, error: memberError } = await supabase
     .from('employee_company_roles')
-    .select('employee_id, company_id, employees!employee_company_roles_employee_id_fkey(active)')
+    .select('employee_id, company_id, foreman_id, employees!employee_company_roles_employee_id_fkey(active)')
     .eq('active', true);
 
   if (memberError) {
@@ -91,7 +93,7 @@ exports.handler = async (event) => {
   const lunchLocationCache = {};
 
   for (const m of activeMemberships) {
-    const { employee_id: employeeId, company_id: companyId } = m;
+    const { employee_id: employeeId, company_id: companyId, foreman_id: foremanId } = m;
 
     // Fetch all time entries for this employee at this company yesterday
     const { data: entries, error: entryError } = await supabase
@@ -172,12 +174,15 @@ exports.handler = async (event) => {
         hours_type: 'regular',
         is_weekend: isWeekend(yesterday),
         is_holiday: isHoliday(yesterday),
+        foreman_id: foremanId || null,
         status: 'draft',
       });
 
     if (insertError) {
-      console.error(`Lunch insert failed for ${employeeId} on ${yesterday}:`, insertError);
+      console.error(`Lunch insert failed for ${employeeId} on ${yesterday}:`, JSON.stringify(insertError));
+      skipped++;
     } else {
+      console.log(`Lunch added for employee ${employeeId} on ${yesterday}`);
       added++;
     }
   }
