@@ -218,6 +218,7 @@ function segmentRowHtml(seg) {
         </div>
         <div class="day-stub-meta">
           ${seg.job_locations ? `<span>${escapeHtml(seg.job_locations.name)}</span>` : '<span>No location set</span>'}
+          ${seg.work_orders ? `<span style="color:#7c3aed;font-weight:600;">WO# ${escapeHtml(seg.work_orders.wo_number)}</span>` : ''}
           ${seg.employees ? `<span>Foreman: ${escapeHtml(seg.employees.first_name)} ${escapeHtml(seg.employees.last_name)}</span>` : ''}
           ${seg.activity_description ? `<span>${escapeHtml(seg.activity_description)}</span>` : ''}
         </div>
