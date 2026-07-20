@@ -203,38 +203,92 @@ async function loadJobLocationsAdmin() {
 
 function renderJobLocationsAdmin(locations) {
   const el = document.getElementById('job-locations-admin');
+  const active = locations.filter(l => l.active);
+  const inactive = locations.filter(l => !l.active);
 
-  const listHtml = locations.length === 0
-    ? `<div class="empty-state" style="padding:20px;">No job locations yet.</div>`
-    : locations.map(loc => {
-        const hasLaborBudget = loc.budget_amount != null;
-        const hasMaterialsBudget = loc.budget_materials != null;
-        const hasBudget = hasLaborBudget || hasMaterialsBudget;
-        return `
-          <div class="employee-row" style="align-items:flex-start; padding:10px 0;">
-            <div style="${loc.active ? '' : 'opacity:0.55;'} flex:1;">
-              <div class="employee-name">${escapeHtml(loc.name)}${!loc.active ? ' (deactivated)' : ''}</div>
-              ${loc.address ? `<div class="employee-meta">${escapeHtml(loc.address)}</div>` : ''}
-              ${hasLaborBudget ? `<div class="employee-meta" style="color:var(--ink-soft);">Labor: $${Number(loc.budget_amount).toLocaleString('en-US',{minimumFractionDigits:2})} <span id="burn-labor-${loc.id}" style="font-style:italic;">Loading...</span></div>` : ''}
-              ${hasMaterialsBudget ? `<div class="employee-meta" style="color:var(--ink-soft);">Materials: $${Number(loc.budget_materials).toLocaleString('en-US',{minimumFractionDigits:2})} <span id="burn-materials-${loc.id}" style="font-style:italic;">Loading...</span></div>` : ''}
-            </div>
-            <div style="display:flex; gap:6px; flex-shrink:0;">
-              <button class="btn btn-sm btn-ghost" data-edit-budget="${loc.id}" data-budget-amount="${loc.budget_amount || ''}" data-budget-materials="${loc.budget_materials || ''}">Budget</button>
-              <button class="btn btn-sm ${loc.active ? 'btn-danger' : 'btn-primary'}" data-toggle-loc="${loc.id}" data-currently-active="${loc.active}">${loc.active ? 'Off' : 'On'}</button>
-            </div>
-          </div>
-        `;
-      }).join('');
+  function locationRowHtml(loc) {
+    const hasLaborBudget = loc.budget_amount != null;
+    const hasMaterialsBudget = loc.budget_materials != null;
+    return `
+      <div class="employee-row" data-loc-name="${escapeHtml(loc.name.toLowerCase())}" style="align-items:flex-start; padding:10px 0;">
+        <div style="flex:1;">
+          <div class="employee-name">${escapeHtml(loc.name)}</div>
+          ${loc.address ? `<div class="employee-meta">${escapeHtml(loc.address)}</div>` : ''}
+          ${hasLaborBudget ? `<div class="employee-meta" style="color:var(--ink-soft);">Labor: $${Number(loc.budget_amount).toLocaleString('en-US',{minimumFractionDigits:2})} <span id="burn-labor-${loc.id}" style="font-style:italic;">Loading...</span></div>` : ''}
+          ${hasMaterialsBudget ? `<div class="employee-meta" style="color:var(--ink-soft);">Materials: $${Number(loc.budget_materials).toLocaleString('en-US',{minimumFractionDigits:2})} <span id="burn-materials-${loc.id}" style="font-style:italic;">Loading...</span></div>` : ''}
+        </div>
+        <div style="display:flex; gap:6px; flex-shrink:0;">
+          <button class="btn btn-sm btn-ghost" data-edit-budget="${loc.id}" data-budget-amount="${loc.budget_amount || ''}" data-budget-materials="${loc.budget_materials || ''}">Budget</button>
+          <button class="btn btn-sm ${loc.active ? 'btn-danger' : 'btn-primary'}" data-toggle-loc="${loc.id}" data-currently-active="${loc.active}">${loc.active ? 'Off' : 'On'}</button>
+        </div>
+      </div>`;
+  }
 
   el.innerHTML = `
     <button class="btn btn-ghost btn-sm" id="add-location-btn" style="margin-bottom:14px;">+ Add job location</button>
-    ${listHtml}
+    <input id="loc-search" type="text" placeholder="Search locations..." style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:13px;margin-bottom:12px;box-sizing:border-box;" />
+    <div style="display:flex;gap:0;border-bottom:2px solid var(--line);margin-bottom:14px;">
+      <button id="loc-tab-active" style="flex:1;padding:8px;background:none;border:none;border-bottom:2px solid var(--amber);margin-bottom:-2px;font-weight:700;font-size:13px;cursor:pointer;color:var(--ink);">Active (${active.length})</button>
+      <button id="loc-tab-inactive" style="flex:1;padding:8px;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;font-weight:400;font-size:13px;cursor:pointer;color:var(--ink-soft);">Inactive (${inactive.length})</button>
+    </div>
+    <div id="loc-list-active">${active.length === 0 ? '<div class="screen-sub">No active locations.</div>' : active.map(locationRowHtml).join('')}</div>
+    <div id="loc-list-inactive" style="display:none;">${inactive.length === 0 ? '<div class="screen-sub">No inactive locations.</div>' : inactive.map(locationRowHtml).join('')}</div>
   `;
 
   document.getElementById('add-location-btn').addEventListener('click', showAddJobLocationDialog);
 
-  // Load budget burn for locations that have any budget set
-  locations.filter(l => (l.budget_amount != null || l.budget_materials != null) && l.active).forEach(loc => {
+  // Tab switching
+  let currentTab = 'active';
+  document.getElementById('loc-tab-active').addEventListener('click', () => {
+    currentTab = 'active';
+    document.getElementById('loc-list-active').style.display = '';
+    document.getElementById('loc-list-inactive').style.display = 'none';
+    document.getElementById('loc-tab-active').style.borderBottomColor = 'var(--amber)';
+    document.getElementById('loc-tab-active').style.fontWeight = '700';
+    document.getElementById('loc-tab-active').style.color = 'var(--ink)';
+    document.getElementById('loc-tab-inactive').style.borderBottomColor = 'transparent';
+    document.getElementById('loc-tab-inactive').style.fontWeight = '400';
+    document.getElementById('loc-tab-inactive').style.color = 'var(--ink-soft)';
+    document.getElementById('loc-search').dispatchEvent(new Event('input'));
+  });
+  document.getElementById('loc-tab-inactive').addEventListener('click', () => {
+    currentTab = 'inactive';
+    document.getElementById('loc-list-active').style.display = 'none';
+    document.getElementById('loc-list-inactive').style.display = '';
+    document.getElementById('loc-tab-inactive').style.borderBottomColor = 'var(--amber)';
+    document.getElementById('loc-tab-inactive').style.fontWeight = '700';
+    document.getElementById('loc-tab-inactive').style.color = 'var(--ink)';
+    document.getElementById('loc-tab-active').style.borderBottomColor = 'transparent';
+    document.getElementById('loc-tab-active').style.fontWeight = '400';
+    document.getElementById('loc-tab-active').style.color = 'var(--ink-soft)';
+    document.getElementById('loc-search').dispatchEvent(new Event('input'));
+  });
+
+  // Live search
+  document.getElementById('loc-search').addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    const listId = currentTab === 'active' ? 'loc-list-active' : 'loc-list-inactive';
+    const rows = document.querySelectorAll(`#${listId} [data-loc-name]`);
+    let visible = 0;
+    rows.forEach(row => {
+      const match = !q || row.getAttribute('data-loc-name').includes(q);
+      row.style.display = match ? '' : 'none';
+      if (match) visible++;
+    });
+    const emptyMsg = document.querySelector(`#${listId} .screen-sub`);
+    if (!emptyMsg && visible === 0) {
+      const div = document.createElement('div');
+      div.className = 'screen-sub';
+      div.id = 'loc-no-results';
+      div.textContent = 'No locations match your search.';
+      document.getElementById(listId).appendChild(div);
+    } else if (document.getElementById('loc-no-results')) {
+      document.getElementById('loc-no-results').remove();
+    }
+  });
+
+  // Load budget burn for active locations with budgets
+  active.filter(l => l.budget_amount != null || l.budget_materials != null).forEach(loc => {
     loadBudgetBurn(loc.id);
   });
 
