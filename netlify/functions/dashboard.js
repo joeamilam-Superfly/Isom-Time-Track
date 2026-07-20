@@ -61,9 +61,7 @@ exports.handler = async (event) => {
 
     if (!targetRoleRow) return { statusCode: 404, body: JSON.stringify({ error: 'Employee not found at this company' }) };
 
-    if (myRole.role === 'foreman' && targetRoleRow.foreman_id !== auth.employeeId && targetId !== auth.employeeId) {
-      return forbidden('You can only view employees assigned to you');
-    }
+    // Foremen can now view any employee at the company (cross-crew feature)
 
     const { data: target, error: empError } = await supabase
       .from('employees')
