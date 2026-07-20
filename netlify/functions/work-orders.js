@@ -60,6 +60,7 @@ exports.handler = async (event) => {
     }
 
     if (params.status === 'open') query = query.in('status', ['open', 'submitted']);
+    else if (params.status === 'billed') query = query.in('status', ['billed', 'cancelled']);
     else if (params.status) query = query.eq('status', params.status);
     if (params.includeCompleted === 'true') query = query.in('status', ['open', 'submitted', 'ready_to_bill', 'billed']);
     if (params.locationId) query = query.eq('job_location_id', params.locationId);
@@ -328,6 +329,13 @@ exports.handler = async (event) => {
       if (newDetails !== undefined) updateFields.details = newDetails || null;
       if (newIsEstimate !== undefined) updateFields.is_estimate = !!newIsEstimate;
       if (newLinkedWoNumber !== undefined) updateFields.linked_wo_number = newLinkedWoNumber || null;
+      // If converting to estimate and currently ready_to_bill, reopen it
+      // so the tech can properly mark it complete through the normal flow
+      if (newIsEstimate && wo.status === 'ready_to_bill') {
+        updateFields.status = 'open';
+        updateFields.completed_at = null;
+        updateFields.completed_by_id = null;
+      }
       const { error } = await supabase.from('work_orders').update(updateFields).eq('id', workOrderId);
       if (error) return errorResponse(error);
       return { statusCode: 200, body: JSON.stringify({ ok: true }) };
@@ -414,6 +422,25 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: JSON.stringify({ ok: true }) };
     }
 
+    // ---- cancel (admin/foreman only) ----
+    if (action === 'cancel') {
+      if (myRole.role === 'employee') return forbidden('Only foremen and admins can cancel work orders');
+      if (wo.status === 'cancelled') return { statusCode: 409, body: JSON.stringify({ error: 'Work order is already cancelled' }) };
+      if (wo.status === 'billed') return { statusCode: 409, body: JSON.stringify({ error: 'Cannot cancel a billed work order' }) };
+      const cancellationNote = body.cancellationNote || null;
+      const { error } = await supabase.from('work_orders')
+        .update({
+          status: 'cancelled',
+          details: cancellationNote
+            ? `${wo.details ? wo.details + '\n\n' : ''}CANCELLED: ${cancellationNote}`
+            : wo.details,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', workOrderId);
+      if (error) return errorResponse(error);
+      return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+    }
+
     // ---- reopen (foreman/admin only) ----
     if (action === 'reopen') {
       if (myRole.role === 'employee') return forbidden('Only foremen and admins can reopen work orders');
@@ -423,7 +450,7 @@ exports.handler = async (event) => {
       if (current.status === 'billed' && !current.is_estimate && current.invoice_number) {
         return { statusCode: 409, body: JSON.stringify({ error: 'Cannot reopen a billed work order — it has already been invoiced' }) };
       }
-      if (current.status !== 'ready_to_bill' && current.status !== 'submitted' && current.status !== 'billed') {
+      if (current.status !== 'ready_to_bill' && current.status !== 'submitted' && current.status !== 'billed' && current.status !== 'cancelled') {
         return { statusCode: 409, body: JSON.stringify({ error: 'Work order is already open' }) };
       }
       const { error } = await supabase
