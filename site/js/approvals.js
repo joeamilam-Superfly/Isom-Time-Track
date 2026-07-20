@@ -594,7 +594,7 @@ async function loadWorkOrdersSection() {
 
       let filtered = q ? wos.filter(wo => {
         // WO# and invoice# must be exact match (case-insensitive)
-        const woMatch = wo.woNumber?.toLowerCase() === q;
+        const woMatch = wo.woNumber?.toLowerCase().startsWith(q) || wo.woNumber?.toLowerCase() === q;
         const invoiceMatch = wo.invoiceNumber?.toLowerCase() === q;
         const linkedMatch = wo.linkedWoNumber?.toLowerCase() === q;
         // Location, employee, details allow partial match
@@ -633,7 +633,7 @@ async function loadWorkOrdersSection() {
       let matchedBilled = [];
       if (q2 && myRole === 'admin' && billedWos.length > 0) {
         matchedBilled = billedWos.filter(wo =>
-          wo.woNumber?.toLowerCase() === q2 ||
+          (wo.woNumber?.toLowerCase().startsWith(q2) || wo.woNumber?.toLowerCase() === q2) ||
           wo.invoiceNumber?.toLowerCase() === q2 ||
           wo.jobLocation?.name?.toLowerCase().includes(q2) ||
           wo.assignedTo?.name?.toLowerCase().includes(q2)
