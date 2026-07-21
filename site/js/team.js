@@ -477,6 +477,12 @@ async function showEditProfileDialog(employee) {
       </div>
 
       <div class="field">
+        <label for="edit-new-pin">Change PIN (optional)</label>
+        <input id="edit-new-pin" type="password" inputmode="numeric" placeholder="Leave blank to keep current PIN" maxlength="6" style="letter-spacing:0.2em;" />
+        <div class="screen-sub">Enter a new 4 to 6 digit PIN. Leave blank to keep their current PIN unchanged.</div>
+      </div>
+
+      <div class="field">
         <label>Work order card color</label>
         <div class="screen-sub" style="margin-bottom:8px;">Color used to identify this employee on work order cards. Tap to choose.</div>
         <div id="color-picker-grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
@@ -578,6 +584,7 @@ async function showEditProfileDialog(employee) {
     const billRate = billRateInput ? Number(billRateInput) : undefined;
     const displayColor = document.getElementById('edit-display-color').value || undefined;
     const queueEligible = document.getElementById('edit-queue-eligible').checked;
+    const newPin = document.getElementById('edit-new-pin').value.trim();
     const errorEl = document.getElementById('edit-profile-error');
     errorEl.innerHTML = '';
 
@@ -610,6 +617,7 @@ async function showEditProfileDialog(employee) {
           billRate,
           displayColor,
           queueEligible,
+          newPin: newPin || undefined,
         }),
       });
 
