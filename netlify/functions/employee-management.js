@@ -278,12 +278,33 @@ exports.handler = async (event) => {
 
     if (Object.keys(profileUpdate).length > 0) {
       profileUpdate.updated_at = new Date().toISOString();
+
+      // Handle PIN change if provided
+      if (body.newPin !== undefined && body.newPin !== '') {
+        const pinStr = String(body.newPin).trim();
+        if (!/^\d{4,6}$/.test(pinStr)) {
+          return { statusCode: 400, body: JSON.stringify({ error: 'PIN must be 4 to 6 digits' }) };
+        }
+        profileUpdate.pin_hash = bcrypt.hashSync(pinStr, 10);
+      }
+
       const { error: profileError } = await supabase
         .from('employees')
         .update(profileUpdate)
         .eq('id', employeeId);
 
       if (profileError) return errorResponse(profileError);
+    } else if (body.newPin !== undefined && body.newPin !== '') {
+      // PIN only — no other profile fields changed
+      const pinStr = String(body.newPin).trim();
+      if (!/^\d{4,6}$/.test(pinStr)) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'PIN must be 4 to 6 digits' }) };
+      }
+      const { error: pinError } = await supabase
+        .from('employees')
+        .update({ pin_hash: bcrypt.hashSync(pinStr, 10), updated_at: new Date().toISOString() })
+        .eq('id', employeeId);
+      if (pinError) return errorResponse(pinError);
     }
 
     // Role/foreman live on employee_company_roles, scoped to this company
