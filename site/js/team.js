@@ -438,6 +438,11 @@ async function showEditProfileDialog(employee) {
       </div>
       <div class="screen-sub">Changing this changes their login number and where text messages go - they'll need to use the new number to log in afterward.</div>
       <div class="field">
+        <label for="edit-new-pin">Change PIN (optional)</label>
+        <input id="edit-new-pin" type="password" inputmode="numeric" placeholder="Leave blank to keep current PIN" maxlength="6" style="letter-spacing:0.2em;" />
+        <div class="screen-sub">Enter a new 4 to 6 digit PIN. Leave blank to keep their current PIN unchanged.</div>
+      </div>
+      <div class="field">
         <label for="edit-email">Email (optional)</label>
         <input id="edit-email" type="email" value="${employee.email ? escapeHtml(employee.email) : ''}" />
       </div>
@@ -474,12 +479,6 @@ async function showEditProfileDialog(employee) {
           Allow this employee to see and grab unassigned work orders
         </label>
         <div class="screen-sub">When enabled, this employee sees the Available Work Orders queue and can self-assign open WOs.</div>
-      </div>
-
-      <div class="field">
-        <label for="edit-new-pin">Change PIN (optional)</label>
-        <input id="edit-new-pin" type="password" inputmode="numeric" placeholder="Leave blank to keep current PIN" maxlength="6" style="letter-spacing:0.2em;" />
-        <div class="screen-sub">Enter a new 4 to 6 digit PIN. Leave blank to keep their current PIN unchanged.</div>
       </div>
 
       <div class="field">
