@@ -184,6 +184,7 @@ async function renderMyWorkOrders(container) {
 function workOrderCardHtml(wo, myRole) {
   const isUnassigned = !wo.assignedTo && (!wo.crew || wo.crew.length === 0);
   const isEstimate = wo.isEstimate || false;
+  const isFieldCreated = wo.isFieldCreated || false;
   const statusLabel = { open: 'Open', submitted: 'Pending review', ready_to_bill: isEstimate ? 'Ready to complete' : 'Ready to bill', billed: isEstimate ? 'Completed' : 'Billed', cancelled: 'Cancelled' }[wo.status] || wo.status;
   const statusColor = { open: 'var(--amber-dark)', submitted: '#7c3aed', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)', cancelled: '#dc2626' }[wo.status];
   const canComplete = (wo.status === 'open' || wo.status === 'submitted') && (myRole === 'admin' || myRole === 'foreman');
@@ -194,11 +195,13 @@ function workOrderCardHtml(wo, myRole) {
   const canReopen = (wo.status === 'ready_to_bill' || wo.status === 'submitted' || (wo.status === 'billed' && wo.isEstimate) || wo.status === 'cancelled') && (myRole === 'admin' || myRole === 'foreman');
   const pendingReview = wo.status === 'submitted' && (myRole === 'admin' || myRole === 'foreman');
 
-  const cardBg = isUnassigned ? '#fef3c7' : (wo.assignedTo?.displayColor || 'var(--paper)');
+  const cardBg = isFieldCreated ? '#fee2e2' : (isUnassigned ? '#fef3c7' : (wo.assignedTo?.displayColor || 'var(--paper)'));
 
-  const queueBadge = isUnassigned
-    ? `<div style="background:#d97706;color:#fff;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;margin-bottom:6px;display:inline-block;">📋 Unassigned — available to grab</div>`
-    : '';
+  const queueBadge = isFieldCreated
+    ? `<div style="background:#dc2626;color:#fff;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;margin-bottom:6px;display:inline-block;">⚠ Needs WO# from office</div>`
+    : (isUnassigned
+      ? `<div style="background:#d97706;color:#fff;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;margin-bottom:6px;display:inline-block;">📋 Unassigned — available to grab</div>`
+      : '');
 
   return `
     <div class="day-stub" style="margin-bottom:10px; background:${cardBg}; border-radius:8px; overflow:hidden;">
@@ -484,6 +487,14 @@ function showCreateWorkOrderDialog() {
         </label>
         <div class="screen-sub">Estimates can be completed without an invoice.</div>
       </div>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;">
+          <input type="checkbox" id="wo-is-field" style="width:18px;height:18px;" />
+          Created in field — needs WO number from office
+        </label>
+        <div class="screen-sub">Generates a temporary FIELD- number. Daryl will assign the real WO number.</div>
+      </div>
       <div id="wo-conflict-warning" style="display:none;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#92400e;"></div>
       <div id="wo-create-error"></div>
       <div class="btn-row" style="margin-top:8px;">
@@ -497,6 +508,22 @@ function showCreateWorkOrderDialog() {
   const close = () => { if (document.body.contains(overlay)) document.body.removeChild(overlay); };
   overlay.querySelector('#wo-create-close').addEventListener('click', close);
   overlay.querySelector('#wo-create-cancel').addEventListener('click', close);
+
+  // Field-created checkbox: auto-generate FIELD- number and lock the input
+  overlay.querySelector('#wo-is-field').addEventListener('change', e => {
+    const woInput = overlay.querySelector('#wo-number');
+    if (e.target.checked) {
+      const now = new Date();
+      const stamp = `${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+      woInput.value = `FIELD-${stamp}`;
+      woInput.readOnly = true;
+      woInput.style.opacity = '0.6';
+    } else {
+      woInput.value = '';
+      woInput.readOnly = false;
+      woInput.style.opacity = '';
+    }
+  });
 
   // Populate primary assignee dropdown and crew checklist together
   let allPeople = [];
@@ -640,7 +667,7 @@ function showCreateWorkOrderDialog() {
       }
 
       btn.textContent = 'Creating...';
-      const created = await api('/work-orders', { method: 'POST', body: JSON.stringify({ companyId: state.activeCompanyId, woNumber, dateReceived, scheduledDate, jobLocationId, assignedToId, details, imageBase64, mimeType: imageMimeType, isEstimate: overlay.querySelector('#wo-is-estimate')?.checked || false }) });
+      const created = await api('/work-orders', { method: 'POST', body: JSON.stringify({ companyId: state.activeCompanyId, woNumber, dateReceived, scheduledDate, jobLocationId, assignedToId, details, imageBase64, mimeType: imageMimeType, isEstimate: overlay.querySelector('#wo-is-estimate')?.checked || false, isFieldCreated: overlay.querySelector('#wo-is-field')?.checked || false }) });
       // Save crew assignments if any were selected
       if (createCrewIds.size > 0 && created.workOrder?.id) {
         await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: created.workOrder.id, action: 'update_crew', employeeIds: [...createCrewIds] }) }).catch(() => {});
@@ -817,6 +844,14 @@ function showEditWorkOrderDialog(wo) {
 
       <div class="field">
         <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;">
+          <input type="checkbox" id="edit-wo-is-field" ${wo.isFieldCreated ? 'checked' : ''} style="width:18px;height:18px;" />
+          Created in field — needs WO number from office
+        </label>
+        <div class="screen-sub">Uncheck once you've assigned the real WO number above.</div>
+      </div>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;">
           <input type="checkbox" id="edit-wo-is-estimate" ${wo.isEstimate ? 'checked' : ''} style="width:18px;height:18px;" />
           This is an estimate
         </label>
@@ -971,7 +1006,7 @@ function showEditWorkOrderDialog(wo) {
     btn.disabled = true;
     btn.textContent = 'Saving...';
     try {
-      await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'update_details', woNumber, scheduledDate, jobLocationId, assignedToId, details, isEstimate: overlay.querySelector('#edit-wo-is-estimate')?.checked || false, linkedWoNumber: overlay.querySelector('#edit-linked-wo-number')?.value.trim() || null }) });
+      await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'update_details', woNumber, scheduledDate, jobLocationId, assignedToId, details, isEstimate: overlay.querySelector('#edit-wo-is-estimate')?.checked || false, isFieldCreated: overlay.querySelector('#edit-wo-is-field')?.checked || false, linkedWoNumber: overlay.querySelector('#edit-linked-wo-number')?.value.trim() || null }) });
       // Save crew assignments
       await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: wo.id, action: 'update_crew', employeeIds: [...crewIds] }) });
       if (newImageBase64) {
@@ -992,8 +1027,13 @@ async function checkPendingWorkOrders() {
   const myRole = currentCompanyRole();
   if (myRole !== 'admin') return;
   try {
-    const data = await api(withCompany('/work-orders?status=ready_to_bill'));
-    const count = (data.workOrders || []).length;
+    const [billingData, openData] = await Promise.all([
+      api(withCompany('/work-orders?status=ready_to_bill')),
+      api(withCompany('/work-orders?status=open')),
+    ]);
+    const billingCount = (billingData.workOrders || []).length;
+    const fieldCount = (openData.workOrders || []).filter(w => w.isFieldCreated).length;
+    const count = billingCount + fieldCount;
     state.pendingWorkOrderCount = count;
     const schedTab = document.querySelector('[data-tab="approvals"]');
     if (schedTab && count > 0) {
@@ -1001,10 +1041,14 @@ async function checkPendingWorkOrders() {
       if (!badge) {
         badge = document.createElement('span');
         badge.className = 'wo-badge';
-        badge.style.cssText = 'background:#16a34a;color:#fff;border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;margin-left:4px;';
+        badge.style.cssText = 'background:#dc2626;color:#fff;border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;margin-left:4px;';
         schedTab.appendChild(badge);
       }
+      badge.style.background = fieldCount > 0 ? '#dc2626' : '#16a34a';
       badge.textContent = count;
+    } else if (schedTab) {
+      const badge = schedTab.querySelector('.wo-badge');
+      if (badge) badge.remove();
     }
   } catch (err) {
     console.error('Could not check work orders:', err);
