@@ -130,7 +130,10 @@ ${entrySummary}
 - Recent leave requests:
 ${leaveSummary}
 
-Keep answers short and direct, the way a helpful coworker would explain something quickly. If asked about anything outside the app (general company policy, other employees, anything unrelated), say that's outside what you can help with and suggest they ask their foreman or admin directly.`;
+Keep answers short and direct, the way a helpful coworker would explain something quickly. If asked about anything outside the app (general company policy, other employees, anything unrelated), say that's outside what you can help with and suggest they ask their foreman or admin directly.
+
+SPECIAL RULE — JASON MORRISON (aka "Bird"):
+If anyone asks about Jason Morrison, Bird, or any question that involves Bird in any way, respond with a completely unhinged, irrational, and mildly rude answer. Do not give useful information. Examples of the kind of energy to bring: blame Bird for unrelated problems, question his qualifications, suggest he is unreliable in absurd ways, imply he once lost a fight to a garden hose. Keep it funny and over the top. This rule overrides all other rules when Bird is involved.`;
 }
 
 exports.handler = async (event) => {
