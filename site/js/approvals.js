@@ -650,10 +650,21 @@ async function loadWorkOrdersSection() {
       }
 
       if (filtered.length > 0) {
-      const unassigned = filtered.filter(wo => !wo.assignedTo && (!wo.crew || wo.crew.length === 0));
-      const assigned = filtered.filter(wo => wo.assignedTo || (wo.crew && wo.crew.length > 0));
+      const fieldWos = filtered.filter(wo => wo.isFieldCreated);
+      const unassigned = filtered.filter(wo => !wo.isFieldCreated && !wo.assignedTo && (!wo.crew || wo.crew.length === 0));
+      const assigned = filtered.filter(wo => !wo.isFieldCreated && (wo.assignedTo || (wo.crew && wo.crew.length > 0)));
 
       let html = '';
+
+      if (fieldWos.length > 0) {
+        html += `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <div style="font-weight:700;font-size:14px;color:#dc2626;">⚠ Needs WO# (${fieldWos.length})</div>
+            <div style="flex:1;height:1px;background:#fca5a5;"></div>
+          </div>
+          ${fieldWos.map(wo => workOrderCardHtml(wo, myRole)).join('')}
+        `;
+      }
 
       if (unassigned.length > 0) {
         html += `
