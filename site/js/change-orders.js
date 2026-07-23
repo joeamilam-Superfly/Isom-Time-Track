@@ -20,6 +20,10 @@ async function showCreateChangeOrderDialog(homeBuildId, workOrderId, woNumber) {
         <div id="co-materials-list"></div>
         <button class="btn btn-ghost btn-sm" id="co-add-material" style="margin-bottom:16px;">+ Add material</button>
 
+        <div style="font-weight:700;font-size:14px;margin-bottom:6px;">Crew on this change order</div>
+        <div class="screen-sub" style="margin-bottom:8px;">Select who is working on this CO. Each person logs their own hours from the worksheet.</div>
+        <div id="co-crew-list" style="border:1px solid var(--line);border-radius:8px;overflow:hidden;max-height:180px;overflow-y:auto;margin-bottom:16px;">${loadingHtml()}</div>
+
         <div id="co-error" style="color:#dc2626;font-size:13px;margin-bottom:8px;"></div>
         <div class="btn-row">
           <button class="btn btn-ghost" id="co-save-draft">Save draft</button>
@@ -31,6 +35,43 @@ async function showCreateChangeOrderDialog(homeBuildId, workOrderId, woNumber) {
   document.body.appendChild(overlay);
   const close = () => { if (document.body.contains(overlay)) document.body.removeChild(overlay); };
   overlay.querySelector('#co-close').addEventListener('click', close);
+
+  // Load crew checklist
+  let selectedCrewIds = new Set();
+  api(withCompany('/dashboard')).then(data => {
+    const people = (data.people || []).filter(p => p.id !== state.employee.id);
+    const crewList = overlay.querySelector('#co-crew-list');
+    if (people.length === 0) {
+      crewList.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--ink-soft);">No other employees found.</div>';
+      return;
+    }
+    const myTeam = people.filter(p => p.isMyTeam !== false);
+    const others = people.filter(p => p.isMyTeam === false);
+    function crewRowHtml(p) {
+      return `<label data-crew-id="${p.id}" style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line);cursor:pointer;font-size:13px;">
+        <input type="checkbox" value="${p.id}" style="width:16px;height:16px;" />
+        ${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)} <span style="color:var(--ink-soft);font-size:11px;">(${p.role})</span>
+      </label>`;
+    }
+    let html = '';
+    if (myTeam.length > 0 && others.length > 0) {
+      html += `<div style="padding:4px 12px;font-size:11px;font-weight:700;color:var(--ink-soft);background:var(--paper-dim);">MY TEAM</div>`;
+    }
+    html += myTeam.map(crewRowHtml).join('');
+    if (others.length > 0) {
+      html += `<div style="padding:4px 12px;font-size:11px;font-weight:700;color:var(--ink-soft);background:var(--paper-dim);">OTHER EMPLOYEES</div>`;
+      html += others.map(crewRowHtml).join('');
+    }
+    crewList.innerHTML = html;
+    crewList.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) selectedCrewIds.add(cb.value);
+        else selectedCrewIds.delete(cb.value);
+      });
+    });
+  }).catch(() => {
+    overlay.querySelector('#co-crew-list').innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--ink-soft);">Could not load employees.</div>';
+  });
 
   // Materials rows
   let materialRows = [{ id: Date.now(), catalogItemId: null, partNumber: '', name: '', category: '', unit: 'each', quantity: 1, unitCost: '' }];
@@ -155,6 +196,7 @@ async function showCreateChangeOrderDialog(homeBuildId, workOrderId, woNumber) {
           homeBuildId,
           workOrderId,
           description,
+          crewIds: [...selectedCrewIds],
           materials: validMats.map(m => ({
             catalogItemId: m.catalogItemId,
             partNumber: m.partNumber,
@@ -330,6 +372,73 @@ function showRemoteApprovalDialog(co, homeBuildId) {
     } catch (err) {
       errorEl.textContent = err.message;
       btn.disabled = false; btn.textContent = 'Send approval request';
+    }
+  });
+}
+
+// ---- Log Labor on Change Order ----
+async function showLogCoLaborDialog(co, homeBuildId) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.6);display:flex;align-items:center;justify-content:center;z-index:170;padding:20px;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;width:100%;max-width:420px;padding:20px;">
+      <div style="font-weight:700;font-size:17px;margin-bottom:4px;">Log My Time — ${escapeHtml(co.co_number)}</div>
+      <div class="screen-sub" style="margin-bottom:14px;">Time will appear in your My Hours and link to the work order.</div>
+
+      <div class="field">
+        <label>Date *</label>
+        <input id="labor-date" type="date" value="${todayStr()}" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:13px;box-sizing:border-box;" />
+      </div>
+      <div class="field">
+        <label>Hours worked *</label>
+        <input id="labor-hours" type="number" min="0.25" step="0.25" placeholder="e.g. 2.5" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:13px;box-sizing:border-box;" />
+      </div>
+      <div class="field">
+        <label>Description (optional)</label>
+        <input id="labor-desc" type="text" placeholder="What was done..." style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:13px;box-sizing:border-box;" />
+      </div>
+      <div id="labor-error" style="color:#dc2626;font-size:13px;margin-bottom:8px;"></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="labor-cancel">Cancel</button>
+        <button class="btn btn-primary" id="labor-save">Log my hours</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => { if (document.body.contains(overlay)) document.body.removeChild(overlay); };
+  overlay.querySelector('#labor-cancel').addEventListener('click', close);
+
+  overlay.querySelector('#labor-save').addEventListener('click', async () => {
+    const entryDate = overlay.querySelector('#labor-date').value;
+    const hoursWorked = parseFloat(overlay.querySelector('#labor-hours').value);
+    const activityDescription = overlay.querySelector('#labor-desc').value.trim();
+    const errorEl = overlay.querySelector('#labor-error');
+
+    if (!entryDate) { errorEl.textContent = 'Enter a date.'; return; }
+    if (!hoursWorked || hoursWorked <= 0) { errorEl.textContent = 'Enter valid hours.'; return; }
+
+    const btn = overlay.querySelector('#labor-save');
+    btn.disabled = true; btn.textContent = 'Saving...';
+
+    try {
+      await api('/change-orders', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          companyId: state.activeCompanyId,
+          id: co.id,
+          action: 'log_labor',
+          employeeId: state.employee.id,
+          entryDate,
+          hoursWorked,
+          activityDescription: activityDescription || null,
+          foremanId: state.employee.id,
+        }),
+      });
+      close();
+      showHomeBuildWorksheet(homeBuildId);
+    } catch (err) {
+      errorEl.textContent = err.message;
+      btn.disabled = false; btn.textContent = 'Log my hours';
     }
   });
 }
