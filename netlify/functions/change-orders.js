@@ -19,7 +19,7 @@ exports.handler = async (event) => {
     if (params.id) {
       const { data, error } = await supabase
         .from('change_orders')
-        .select('*, change_order_materials(*)')
+        .select('*, change_order_materials(*), change_order_labor(*, time_entries(entry_date, hours_worked, employees!time_entries_employee_id_fkey(first_name, last_name)))')
         .eq('id', params.id)
         .eq('company_id', companyId)
         .single();
@@ -29,7 +29,7 @@ exports.handler = async (event) => {
     if (params.homeBuildId) {
       const { data, error } = await supabase
         .from('change_orders')
-        .select('*, change_order_materials(*)')
+        .select('*, change_order_materials(*), change_order_labor(*, time_entries(entry_date, hours_worked, employees!time_entries_employee_id_fkey(first_name, last_name)))')
         .eq('home_build_id', params.homeBuildId)
         .eq('company_id', companyId)
         .order('co_number', { ascending: true });
@@ -68,6 +68,7 @@ exports.handler = async (event) => {
         work_order_id: workOrderId,
         co_number: coNumber,
         description: description || null,
+        crew_ids: (body.crewIds && body.crewIds.length > 0) ? body.crewIds : null,
         status: 'draft',
         created_by_id: auth.employeeId,
       })
@@ -99,6 +100,47 @@ exports.handler = async (event) => {
   if (method === 'PATCH') {
     const { id, action } = body;
     if (!id) return { statusCode: 400, body: JSON.stringify({ error: 'id required' }) };
+
+    // Log labor against a change order
+    if (action === 'log_labor') {
+      const { employeeId, entryDate, hoursWorked, jobLocationId, activityDescription, foremanId } = body;
+      if (!employeeId) return { statusCode: 400, body: JSON.stringify({ error: 'employeeId required' }) };
+      if (!entryDate) return { statusCode: 400, body: JSON.stringify({ error: 'entryDate required' }) };
+      if (!hoursWorked || hoursWorked <= 0) return { statusCode: 400, body: JSON.stringify({ error: 'hoursWorked must be > 0' }) };
+
+      // Fetch the CO to get workOrderId
+      const { data: co } = await supabase.from('change_orders').select('work_order_id').eq('id', id).single();
+      if (!co) return { statusCode: 404, body: JSON.stringify({ error: 'Change order not found' }) };
+
+      // Create the time entry — flows to employee My Hours
+      const { data: te, error: teErr } = await supabase
+        .from('time_entries')
+        .insert({
+          company_id: companyId,
+          employee_id: employeeId,
+          entry_date: entryDate,
+          hours_worked: parseFloat(hoursWorked),
+          hours_type: 'regular',
+          job_location_id: jobLocationId || null,
+          work_order_id: co.work_order_id,
+          activity_description: activityDescription || `Change order labor — ${id}`,
+          foreman_id: foremanId || auth.employeeId,
+          is_weekend: [0, 6].includes(new Date(entryDate + 'T12:00:00Z').getUTCDay()),
+          is_holiday: false,
+          status: 'draft',
+        })
+        .select()
+        .single();
+      if (teErr) return errorResponse(teErr);
+
+      // Link time entry to change order via change_order_labor
+      await supabase.from('change_order_labor').insert({
+        change_order_id: id,
+        time_entry_id: te.id,
+      });
+
+      return { statusCode: 201, body: JSON.stringify({ ok: true, timeEntry: te }) };
+    }
 
     // Sign in person
     if (action === 'sign_in_person') {
@@ -189,6 +231,7 @@ exports.handler = async (event) => {
     const update = { updated_at: new Date().toISOString() };
     if (body.description !== undefined) update.description = body.description;
     if (body.status !== undefined) update.status = body.status;
+    if (body.crewIds !== undefined) update.crew_ids = body.crewIds.length > 0 ? body.crewIds : null;
     const { error } = await supabase.from('change_orders').update(update).eq('id', id).eq('company_id', companyId);
     if (error) return errorResponse(error);
     return { statusCode: 200, body: JSON.stringify({ ok: true }) };
