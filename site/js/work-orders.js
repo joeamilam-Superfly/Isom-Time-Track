@@ -1548,10 +1548,13 @@ async function showHomeBuildWorksheet(homeBuildId) {
   try {
     const data = await api(`/home-builds?id=${homeBuildId}&companyId=${state.activeCompanyId}`);
     const hb = data.homeBuild;
+    const myRole = currentCompanyRole();
+    const canManage = myRole === 'admin' || myRole === 'foreman';
     const loc = hb.job_locations?.name || 'No location';
     const roughIn = hb.rough_in_wo;
     const trim = hb.trim_wo;
     const cos = hb.change_orders || [];
+    const activeWo = trim || roughIn;
 
     overlay.querySelector('#ws-content').innerHTML = `
       <div style="margin-bottom:16px;">
@@ -1568,26 +1571,99 @@ async function showHomeBuildWorksheet(homeBuildId) {
         </div>
         <div style="border:1px solid var(--line);border-radius:8px;padding:12px;">
           <div style="font-weight:700;font-size:12px;color:#7c3aed;margin-bottom:4px;">TRIM</div>
-          ${trim ? `<div style="font-size:13px;">WO# ${escapeHtml(trim.wo_number)}</div><div style="font-size:12px;color:var(--ink-soft);">${trim.status}</div>` : '<div style="font-size:12px;color:var(--ink-soft);">Not started</div>'}
+          ${trim ? `<div style="font-size:13px;">WO# ${escapeHtml(trim.wo_number)}</div><div style="font-size:12px;color:var(--ink-soft);">${trim.status}</div>` : (canManage && roughIn ? `<button class="btn btn-sm btn-ghost" id="ws-start-trim" style="font-size:11px;">Start Trim Phase</button>` : '<div style="font-size:12px;color:var(--ink-soft);">Not started</div>')}
         </div>
       </div>
 
-      <div style="font-weight:700;font-size:14px;margin-bottom:8px;">Change Orders (${cos.length})</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-weight:700;font-size:14px;">Change Orders (${cos.length})</div>
+        ${canManage && activeWo ? `<button class="btn btn-amber btn-sm" id="ws-new-co">+ New CO</button>` : ''}
+      </div>
       ${cos.length === 0
-        ? '<div class="screen-sub">No change orders yet.</div>'
+        ? '<div class="screen-sub" style="margin-bottom:16px;">No change orders yet.</div>'
         : cos.map(co => `
           <div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;">
-            <div style="display:flex;justify-content:space-between;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
               <div style="font-weight:700;">${escapeHtml(co.co_number)}</div>
-              <span style="font-size:11px;font-weight:600;color:${co.status === 'approved' ? '#16a34a' : 'var(--ink-soft)'};">${co.status}</span>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <span style="font-size:11px;font-weight:600;color:${co.status === 'approved' ? '#16a34a' : co.status === 'pending_approval' ? '#C47C1E' : 'var(--ink-soft)'};">${co.status.replace(/_/g, ' ')}</span>
+                ${canManage && co.status === 'draft' ? `<button class="btn btn-sm btn-ghost" data-co-sign="${co.id}" style="font-size:11px;">Get signature</button>` : ''}
+              </div>
             </div>
             <div style="font-size:13px;color:var(--ink-soft);">${co.description ? escapeHtml(co.description) : 'No description'}</div>
-            ${co.approver_name ? `<div style="font-size:12px;margin-top:4px;">Approved by: ${escapeHtml(co.approver_name)} · ${co.approved_at ? new Date(co.approved_at).toLocaleDateString() : ''}</div>` : ''}
-            <div style="font-size:12px;color:var(--ink-soft);">${(co.change_order_materials || []).length} material line(s)</div>
+            ${co.approver_name ? `<div style="font-size:12px;margin-top:4px;color:#16a34a;">&#10003; Approved by: ${escapeHtml(co.approver_name)}</div>` : ''}
+            <div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">${(co.change_order_materials || []).length} material line(s)</div>
           </div>`).join('')}
 
-      <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px;font-size:12px;color:var(--ink-soft);">Full change order creation and materials tracking coming in the next update.</div>
+      <button class="btn btn-ghost btn-sm" id="ws-print" style="margin-top:8px;width:100%;">Print / Download Worksheet</button>
     `;
+
+    // Wire New CO button
+    const newCoBtn = overlay.querySelector('#ws-new-co');
+    if (newCoBtn && activeWo) {
+      newCoBtn.addEventListener('click', () => {
+        close();
+        showCreateChangeOrderDialog(homeBuildId, activeWo.id, activeWo.wo_number);
+      });
+    }
+
+    // Wire Get Signature buttons
+    overlay.querySelectorAll('[data-co-sign]').forEach(btn => {
+      const coId = btn.getAttribute('data-co-sign');
+      const co = cos.find(c => c.id === coId);
+      if (co) btn.addEventListener('click', () => { close(); showSignatureDialog(co, homeBuildId); });
+    });
+
+    // Wire Start Trim button
+    const trimBtn = overlay.querySelector('#ws-start-trim');
+    if (trimBtn) {
+      trimBtn.addEventListener('click', async () => {
+        const trimWoNumber = prompt('Enter the WO number for the Trim phase:');
+        if (!trimWoNumber) return;
+        trimBtn.disabled = true; trimBtn.textContent = 'Creating...';
+        try {
+          await api('/home-builds', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, id: homeBuildId, action: 'start_trim', trimWoNumber }) });
+          close();
+          showHomeBuildWorksheet(homeBuildId);
+        } catch (err) { alert(err.message); trimBtn.disabled = false; trimBtn.textContent = 'Start Trim Phase'; }
+      });
+    }
+
+    // Wire Print button
+    const printBtn = overlay.querySelector('#ws-print');
+    if (printBtn) printBtn.addEventListener('click', () => {
+      const matMap = {};
+      for (const co of cos) {
+        for (const m of (co.change_order_materials || [])) {
+          const key = m.part_number || m.name;
+          if (!matMap[key]) matMap[key] = { part_number: m.part_number, name: m.name, unit: m.unit, qty: 0, cost: m.unit_cost };
+          matMap[key].qty += Number(m.quantity);
+        }
+      }
+      const allMats = Object.values(matMap);
+      const win = window.open('', '_blank');
+      win.document.write(`<!DOCTYPE html><html><head><title>Home Build Worksheet</title>
+        <style>body{font-family:Arial,sans-serif;font-size:12px;padding:20px;}h2{border-bottom:1px solid #ccc;padding-bottom:4px;margin-top:20px;}table{width:100%;border-collapse:collapse;}th{background:#1a1208;color:#C47C1E;padding:5px 8px;text-align:left;}td{padding:5px 8px;border-bottom:1px solid #eee;}@media print{button{display:none;}}</style>
+        </head><body>
+        <button onclick="window.print()">Print</button>
+        <h1>${escapeHtml(loc)}</h1>
+        ${hb.homeowner_name ? `<p>Homeowner: ${escapeHtml(hb.homeowner_name)}</p>` : ''}
+        ${hb.builder_name ? `<p>Builder: ${escapeHtml(hb.builder_name)}</p>` : ''}
+        <h2>Phases</h2>
+        <table><thead><tr><th>Phase</th><th>WO#</th><th>Status</th></tr></thead><tbody>
+        <tr><td>Rough-in</td><td>${roughIn ? roughIn.wo_number : '-'}</td><td>${roughIn ? roughIn.status : 'Not started'}</td></tr>
+        <tr><td>Trim</td><td>${trim ? trim.wo_number : '-'}</td><td>${trim ? trim.status : 'Not started'}</td></tr>
+        </tbody></table>
+        <h2>Change Orders</h2>
+        <table><thead><tr><th>CO#</th><th>Description</th><th>Status</th><th>Approved By</th><th>Date</th><th>Materials</th></tr></thead><tbody>
+        ${cos.map(co => `<tr><td>${co.co_number}</td><td>${co.description || ''}</td><td>${co.status}</td><td>${co.approver_name || '-'}</td><td>${co.approved_at ? new Date(co.approved_at).toLocaleDateString() : '-'}</td><td>${(co.change_order_materials||[]).length}</td></tr>`).join('')}
+        </tbody></table>
+        <h2>Cumulative Materials</h2>
+        <table><thead><tr><th>Part #</th><th>Name</th><th>Total Qty</th><th>Unit</th><th>Unit Cost</th><th>Total</th></tr></thead><tbody>
+        ${allMats.map(m => `<tr><td>${m.part_number||'-'}</td><td>${m.name}</td><td>${m.qty}</td><td>${m.unit}</td><td>${m.cost ? '$'+Number(m.cost).toFixed(2) : '-'}</td><td>${m.cost ? '$'+(m.cost*m.qty).toFixed(2) : '-'}</td></tr>`).join('')}
+        </tbody></table></body></html>`);
+      win.document.close();
+    });
   } catch (err) {
     overlay.querySelector('#ws-content').innerHTML = errorHtml(err.message);
   }
