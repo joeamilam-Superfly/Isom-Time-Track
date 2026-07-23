@@ -727,6 +727,9 @@ async function loadWorkOrdersSection() {
         const wo = allWos.find(w => w.id === btn.getAttribute('data-wo-edit'));
         if (wo) btn.addEventListener('click', () => showEditWorkOrderDialog(wo));
       });
+      woContent.querySelectorAll('[data-wo-worksheet]').forEach(btn => {
+        btn.addEventListener('click', () => showHomeBuildWorksheet(btn.getAttribute('data-wo-worksheet')));
+      });
       woContent.querySelectorAll('[data-wo-cancel]').forEach(btn => {
         btn.addEventListener('click', async () => {
           const woId = btn.getAttribute('data-wo-cancel');
