@@ -21,6 +21,7 @@ exports.handler = async (event) => {
       .select(`
         id, wo_number, date_received, scheduled_date, status, details, invoice_number,
         is_estimate, linked_wo_number, is_field_created,
+        is_new_home_build, home_build_id, build_phase,
         queue_visible, self_assigned_at, completed_at, created_at, updated_at,
         job_locations(id, name),
         employees!work_orders_assigned_to_id_fkey(id, first_name, last_name),
@@ -177,6 +178,9 @@ exports.handler = async (event) => {
       selfAssignedAt: w.self_assigned_at || null,
       isEstimate: w.is_estimate || false,
       isFieldCreated: w.is_field_created || false,
+      isNewHomeBuild: w.is_new_home_build || false,
+      homeBuildId: w.home_build_id || null,
+      buildPhase: w.build_phase || null,
       linkedWoNumber: w.linked_wo_number || null,
       invoiceNumber: w.invoice_number || null,
       currentPhoto: (photoMap[w.id] || []).find(p => p.isCurrent) || null,
@@ -200,7 +204,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid request body' }) };
     }
 
-    const { companyId, jobLocationId, woNumber, dateReceived, scheduledDate, assignedToId, imageBase64, mimeType, details, isEstimate, linkedWoNumber, isFieldCreated } = body;
+    const { companyId, jobLocationId, woNumber, dateReceived, scheduledDate, assignedToId, imageBase64, mimeType, details, isEstimate, linkedWoNumber, isFieldCreated, isNewHomeBuild, homeBuildId, buildPhase } = body;
     if (!companyId) return { statusCode: 400, body: JSON.stringify({ error: 'companyId is required' }) };
     if (!woNumber) return { statusCode: 400, body: JSON.stringify({ error: 'Work order number is required' }) };
     if (!dateReceived) return { statusCode: 400, body: JSON.stringify({ error: 'Date received is required' }) };
@@ -221,6 +225,9 @@ exports.handler = async (event) => {
         details: details || null,
         is_estimate: !!isEstimate,
         is_field_created: !!isFieldCreated,
+        is_new_home_build: !!isNewHomeBuild,
+        home_build_id: homeBuildId || null,
+        build_phase: buildPhase || null,
         linked_wo_number: linkedWoNumber || null,
         status: 'open',
         created_by_id: auth.employeeId,
@@ -331,6 +338,9 @@ exports.handler = async (event) => {
       if (newDetails !== undefined) updateFields.details = newDetails || null;
       if (newIsEstimate !== undefined) updateFields.is_estimate = !!newIsEstimate;
       if (body.isFieldCreated !== undefined) updateFields.is_field_created = !!body.isFieldCreated;
+      if (body.isNewHomeBuild !== undefined) updateFields.is_new_home_build = !!body.isNewHomeBuild;
+      if (body.homeBuildId !== undefined) updateFields.home_build_id = body.homeBuildId || null;
+      if (body.buildPhase !== undefined) updateFields.build_phase = body.buildPhase || null;
       if (newLinkedWoNumber !== undefined) updateFields.linked_wo_number = newLinkedWoNumber || null;
       // If converting to estimate and currently ready_to_bill, reopen it
       // so the tech can properly mark it complete through the normal flow
