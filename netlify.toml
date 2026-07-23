@@ -35,3 +35,8 @@
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
+
+[[redirects]]
+  from = "/approve-co"
+  to = "/.netlify/functions/approve-co"
+  status = 200
