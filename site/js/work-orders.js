@@ -152,6 +152,9 @@ async function renderMyWorkOrders(container) {
       const wo = wos.find(w => w.id === btn.getAttribute('data-wo-edit'));
       if (wo) btn.addEventListener('click', () => showEditWorkOrderDialog(wo));
     });
+    container.querySelectorAll('[data-wo-worksheet]').forEach(btn => {
+      btn.addEventListener('click', () => showHomeBuildWorksheet(btn.getAttribute('data-wo-worksheet')));
+    });
     container.querySelectorAll('[data-wo-cancel]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const woId = btn.getAttribute('data-wo-cancel');
@@ -185,6 +188,8 @@ function workOrderCardHtml(wo, myRole) {
   const isUnassigned = !wo.assignedTo && (!wo.crew || wo.crew.length === 0);
   const isEstimate = wo.isEstimate || false;
   const isFieldCreated = wo.isFieldCreated || false;
+  const isNewHomeBuild = wo.isNewHomeBuild || false;
+  const buildPhaseLabel = wo.buildPhase === 'rough_in' ? 'Rough-in' : wo.buildPhase === 'trim' ? 'Trim' : null;
   const statusLabel = { open: 'Open', submitted: 'Pending review', ready_to_bill: isEstimate ? 'Ready to complete' : 'Ready to bill', billed: isEstimate ? 'Completed' : 'Billed', cancelled: 'Cancelled' }[wo.status] || wo.status;
   const statusColor = { open: 'var(--amber-dark)', submitted: '#7c3aed', ready_to_bill: '#16a34a', billed: 'var(--ink-soft)', cancelled: '#dc2626' }[wo.status];
   const canComplete = (wo.status === 'open' || wo.status === 'submitted') && (myRole === 'admin' || myRole === 'foreman');
@@ -211,6 +216,7 @@ function workOrderCardHtml(wo, myRole) {
           <div class="day-stub-date">${isEstimate ? '📋 Est#' : 'WO#'} ${escapeHtml(wo.woNumber)}</div>
           <div style="display:flex;gap:6px;align-items:center;">
             ${isEstimate ? `<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">ESTIMATE</span>` : ''}
+            ${isNewHomeBuild ? `<span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">🏠 ${buildPhaseLabel || 'HOME BUILD'}</span>` : ''}
             <div style="font-size:12px; color:${isEstimate ? '#7c3aed' : statusColor}; font-weight:600;">${statusLabel}</div>
           </div>
         </div>
@@ -232,6 +238,7 @@ function workOrderCardHtml(wo, myRole) {
           ${canBillCard ? `<button class="btn btn-sm btn-primary" data-wo-bill="${wo.id}" style="background:#16a34a;">Mark as billed</button>` : ''}
           ${canManage && !isUnassigned && wo.selfAssignedAt ? `<button class="btn btn-sm btn-ghost" data-wo-return-queue="${wo.id}">Return to queue</button>` : ''}
           ${canCancel ? `<button class="btn btn-sm btn-ghost" data-wo-cancel="${wo.id}" style="color:#dc2626;border-color:#dc2626;">Cancel WO</button>` : ''}
+          ${isNewHomeBuild && wo.homeBuildId ? `<button class="btn btn-sm btn-ghost" data-wo-worksheet="${wo.homeBuildId}" style="color:#16a34a;border-color:#16a34a;">📋 Worksheet</button>` : ''}
           ${canManage ? `<button class="btn btn-sm btn-ghost" data-wo-edit="${wo.id}">Edit</button>` : ''}
         </div>
       </div>
@@ -490,6 +497,48 @@ function showCreateWorkOrderDialog() {
 
       <div class="field">
         <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;">
+          <input type="checkbox" id="wo-is-home-build" style="width:18px;height:18px;" />
+          New home build
+        </label>
+        <div class="screen-sub">Enables change orders, two-phase tracking (Rough-in + Trim), and the master construction worksheet.</div>
+      </div>
+
+      <div id="wo-home-build-fields" style="display:none;">
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px;margin-bottom:12px;">
+          <div style="font-weight:700;font-size:13px;color:#16a34a;margin-bottom:10px;">🏠 Home Build — Phase: Rough-in</div>
+          <div class="field">
+            <label>Builder name</label>
+            <input id="wo-builder-name" type="text" placeholder="Builder or contractor name" />
+          </div>
+          <div style="display:flex;gap:8px;">
+            <div class="field" style="flex:1;">
+              <label>Builder email</label>
+              <input id="wo-builder-email" type="email" placeholder="builder@example.com" />
+            </div>
+            <div class="field" style="flex:1;">
+              <label>Builder phone</label>
+              <input id="wo-builder-phone" type="tel" placeholder="+1..." />
+            </div>
+          </div>
+          <div class="field">
+            <label>Homeowner name</label>
+            <input id="wo-homeowner-name" type="text" placeholder="Homeowner name" />
+          </div>
+          <div style="display:flex;gap:8px;">
+            <div class="field" style="flex:1;">
+              <label>Homeowner email</label>
+              <input id="wo-homeowner-email" type="email" placeholder="owner@example.com" />
+            </div>
+            <div class="field" style="flex:1;">
+              <label>Homeowner phone</label>
+              <input id="wo-homeowner-phone" type="tel" placeholder="+1..." />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;">
           <input type="checkbox" id="wo-is-field" style="width:18px;height:18px;" />
           Created in field — needs WO number from office
         </label>
@@ -508,6 +557,20 @@ function showCreateWorkOrderDialog() {
   const close = () => { if (document.body.contains(overlay)) document.body.removeChild(overlay); };
   overlay.querySelector('#wo-create-close').addEventListener('click', close);
   overlay.querySelector('#wo-create-cancel').addEventListener('click', close);
+
+  // New Home Build checkbox: auto-check estimate and show contact fields
+  overlay.querySelector('#wo-is-home-build').addEventListener('change', e => {
+    const estimateCheck = overlay.querySelector('#wo-is-estimate');
+    const homeBuildFields = overlay.querySelector('#wo-home-build-fields');
+    if (e.target.checked) {
+      estimateCheck.checked = true;
+      estimateCheck.disabled = true;
+      homeBuildFields.style.display = '';
+    } else {
+      estimateCheck.disabled = false;
+      homeBuildFields.style.display = 'none';
+    }
+  });
 
   // Field-created checkbox: auto-generate FIELD- number and lock the input
   overlay.querySelector('#wo-is-field').addEventListener('change', e => {
@@ -667,7 +730,39 @@ function showCreateWorkOrderDialog() {
       }
 
       btn.textContent = 'Creating...';
-      const created = await api('/work-orders', { method: 'POST', body: JSON.stringify({ companyId: state.activeCompanyId, woNumber, dateReceived, scheduledDate, jobLocationId, assignedToId, details, imageBase64, mimeType: imageMimeType, isEstimate: overlay.querySelector('#wo-is-estimate')?.checked || false, isFieldCreated: overlay.querySelector('#wo-is-field')?.checked || false }) });
+      const isHomeBuild = overlay.querySelector('#wo-is-home-build')?.checked || false;
+      const created = await api('/work-orders', { method: 'POST', body: JSON.stringify({
+        companyId: state.activeCompanyId, woNumber, dateReceived, scheduledDate, jobLocationId,
+        assignedToId, details, imageBase64, mimeType: imageMimeType,
+        isEstimate: overlay.querySelector('#wo-is-estimate')?.checked || false,
+        isFieldCreated: overlay.querySelector('#wo-is-field')?.checked || false,
+        isNewHomeBuild: isHomeBuild,
+        buildPhase: isHomeBuild ? 'rough_in' : null,
+      }) });
+
+      // If new home build, create the home_builds record and link the WO
+      if (isHomeBuild && created.workOrder) {
+        const hbResult = await api('/home-builds', { method: 'POST', body: JSON.stringify({
+          companyId: state.activeCompanyId,
+          jobLocationId,
+          builderName: overlay.querySelector('#wo-builder-name')?.value.trim() || null,
+          builderEmail: overlay.querySelector('#wo-builder-email')?.value.trim() || null,
+          builderPhone: overlay.querySelector('#wo-builder-phone')?.value.trim() || null,
+          homeownerName: overlay.querySelector('#wo-homeowner-name')?.value.trim() || null,
+          homeownerEmail: overlay.querySelector('#wo-homeowner-email')?.value.trim() || null,
+          homeownerPhone: overlay.querySelector('#wo-homeowner-phone')?.value.trim() || null,
+          roughInWoId: created.workOrder.id,
+        }) });
+        // Link home_build_id back to the WO
+        if (hbResult.homeBuild) {
+          await api('/work-orders', { method: 'PATCH', body: JSON.stringify({
+            companyId: state.activeCompanyId,
+            workOrderId: created.workOrder.id,
+            action: 'update_details',
+            homeBuildId: hbResult.homeBuild.id,
+          }) }).catch(() => {});
+        }
+      }
       // Save crew assignments if any were selected
       if (createCrewIds.size > 0 && created.workOrder?.id) {
         await api('/work-orders', { method: 'PATCH', body: JSON.stringify({ companyId: state.activeCompanyId, workOrderId: created.workOrder.id, action: 'update_crew', employeeIds: [...createCrewIds] }) }).catch(() => {});
@@ -1431,4 +1526,69 @@ function showWoSitePhotosDialog(wo) {
       saveBtn.textContent = `Upload ${compressedImages.length} photo${compressedImages.length > 1 ? 's' : ''}`;
     }
   });
+}
+
+// ---- Home Build Worksheet (stub — full build in Phase 4) ----
+async function showHomeBuildWorksheet(homeBuildId) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:150;padding:20px;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;width:100%;max-width:540px;max-height:90vh;overflow-y:auto;padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <div style="font-weight:700;font-size:18px;">🏠 Master Worksheet</div>
+        <button id="ws-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--ink-soft);">&times;</button>
+      </div>
+      <div id="ws-content">${loadingHtml()}</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => { if (document.body.contains(overlay)) document.body.removeChild(overlay); };
+  overlay.querySelector('#ws-close').addEventListener('click', close);
+
+  try {
+    const data = await api(`/home-builds?id=${homeBuildId}&companyId=${state.activeCompanyId}`);
+    const hb = data.homeBuild;
+    const loc = hb.job_locations?.name || 'No location';
+    const roughIn = hb.rough_in_wo;
+    const trim = hb.trim_wo;
+    const cos = hb.change_orders || [];
+
+    overlay.querySelector('#ws-content').innerHTML = `
+      <div style="margin-bottom:16px;">
+        <div style="font-weight:700;font-size:15px;">${escapeHtml(loc)}</div>
+        ${hb.homeowner_name ? `<div style="font-size:13px;color:var(--ink-soft);">Homeowner: ${escapeHtml(hb.homeowner_name)}${hb.homeowner_phone ? ' · ' + escapeHtml(hb.homeowner_phone) : ''}</div>` : ''}
+        ${hb.builder_name ? `<div style="font-size:13px;color:var(--ink-soft);">Builder: ${escapeHtml(hb.builder_name)}${hb.builder_phone ? ' · ' + escapeHtml(hb.builder_phone) : ''}</div>` : ''}
+        <div style="font-size:12px;color:var(--ink-soft);margin-top:4px;">Status: ${hb.status.replace('_', ' ')}</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+        <div style="border:1px solid var(--line);border-radius:8px;padding:12px;">
+          <div style="font-weight:700;font-size:12px;color:#16a34a;margin-bottom:4px;">ROUGH-IN</div>
+          ${roughIn ? `<div style="font-size:13px;">WO# ${escapeHtml(roughIn.wo_number)}</div><div style="font-size:12px;color:var(--ink-soft);">${roughIn.status}</div>` : '<div style="font-size:12px;color:var(--ink-soft);">Not started</div>'}
+        </div>
+        <div style="border:1px solid var(--line);border-radius:8px;padding:12px;">
+          <div style="font-weight:700;font-size:12px;color:#7c3aed;margin-bottom:4px;">TRIM</div>
+          ${trim ? `<div style="font-size:13px;">WO# ${escapeHtml(trim.wo_number)}</div><div style="font-size:12px;color:var(--ink-soft);">${trim.status}</div>` : '<div style="font-size:12px;color:var(--ink-soft);">Not started</div>'}
+        </div>
+      </div>
+
+      <div style="font-weight:700;font-size:14px;margin-bottom:8px;">Change Orders (${cos.length})</div>
+      ${cos.length === 0
+        ? '<div class="screen-sub">No change orders yet.</div>'
+        : cos.map(co => `
+          <div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;">
+              <div style="font-weight:700;">${escapeHtml(co.co_number)}</div>
+              <span style="font-size:11px;font-weight:600;color:${co.status === 'approved' ? '#16a34a' : 'var(--ink-soft)'};">${co.status}</span>
+            </div>
+            <div style="font-size:13px;color:var(--ink-soft);">${co.description ? escapeHtml(co.description) : 'No description'}</div>
+            ${co.approver_name ? `<div style="font-size:12px;margin-top:4px;">Approved by: ${escapeHtml(co.approver_name)} · ${co.approved_at ? new Date(co.approved_at).toLocaleDateString() : ''}</div>` : ''}
+            <div style="font-size:12px;color:var(--ink-soft);">${(co.change_order_materials || []).length} material line(s)</div>
+          </div>`).join('')}
+
+      <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px;font-size:12px;color:var(--ink-soft);">Full change order creation and materials tracking coming in the next update.</div>
+    `;
+  } catch (err) {
+    overlay.querySelector('#ws-content').innerHTML = errorHtml(err.message);
+  }
 }
