@@ -1588,15 +1588,88 @@ async function showHomeBuildWorksheet(homeBuildId) {
               <div style="display:flex;gap:6px;align-items:center;">
                 <span style="font-size:11px;font-weight:600;color:${co.status === 'approved' ? '#16a34a' : co.status === 'pending_approval' ? '#C47C1E' : 'var(--ink-soft)'};">${co.status.replace(/_/g, ' ')}</span>
                 ${canManage && co.status === 'draft' ? `<button class="btn btn-sm btn-ghost" data-co-sign="${co.id}" style="font-size:11px;">Get signature</button>` : ''}
+                ${canManage ? `<button class="btn btn-sm btn-ghost" data-co-labor="${co.id}" style="font-size:11px;">Log labor</button>` : ''}
               </div>
             </div>
             <div style="font-size:13px;color:var(--ink-soft);">${co.description ? escapeHtml(co.description) : 'No description'}</div>
             ${co.approver_name ? `<div style="font-size:12px;margin-top:4px;color:#16a34a;">&#10003; Approved by: ${escapeHtml(co.approver_name)}</div>` : ''}
-            <div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">${(co.change_order_materials || []).length} material line(s)</div>
+            <div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">${(co.change_order_materials || []).length} material line(s) &middot; ${(co.change_order_labor || []).reduce((s, l) => s + (l.time_entries?.hours_worked || 0), 0).toFixed(1)}h labor${co.crew_ids && co.crew_ids.length > 0 ? ` &middot; ${co.crew_ids.length} crew` : ''}</div>
           </div>`).join('')}
 
       <button class="btn btn-ghost btn-sm" id="ws-print" style="margin-top:8px;width:100%;">Print / Download Worksheet</button>
     `;
+
+    // Build cumulative materials map
+    const matMap = {};
+    for (const co of cos) {
+      for (const m of (co.change_order_materials || [])) {
+        const key = m.part_number || m.name;
+        if (!matMap[key]) matMap[key] = { part_number: m.part_number, name: m.name, unit: m.unit, qty: 0, unitCost: m.unit_cost };
+        matMap[key].qty += Number(m.quantity);
+      }
+    }
+    const allMats = Object.values(matMap).sort((a, b) => a.name.localeCompare(b.name));
+
+    // Build cumulative labor map
+    const laborMap = {};
+    for (const co of cos) {
+      for (const l of (co.change_order_labor || [])) {
+        const te = l.time_entries;
+        if (!te) continue;
+        const emp = te.employees;
+        const name = emp ? `${emp.first_name} ${emp.last_name}` : 'Unknown';
+        if (!laborMap[name]) laborMap[name] = { name, hours: 0 };
+        laborMap[name].hours += Number(te.hours_worked || 0);
+      }
+    }
+    const allLabor = Object.values(laborMap).sort((a, b) => b.hours - a.hours);
+
+    const wsContent = overlay.querySelector('#ws-content');
+
+    if (allMats.length > 0) {
+      const matSection = document.createElement('div');
+      matSection.style.cssText = 'margin-top:16px;border-top:1px solid var(--line);padding-top:14px;';
+      matSection.innerHTML = `
+        <div style="font-weight:700;font-size:14px;margin-bottom:8px;">Cumulative Materials (${allMats.length} items)</div>
+        <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:380px;">
+          <thead><tr style="background:var(--paper-dim);">
+            <th style="padding:5px 8px;text-align:left;">Part #</th>
+            <th style="padding:5px 8px;text-align:left;">Name</th>
+            <th style="padding:5px 8px;text-align:right;">Total Qty</th>
+            <th style="padding:5px 8px;text-align:left;">Unit</th>
+            <th style="padding:5px 8px;text-align:right;">Total Cost</th>
+          </tr></thead>
+          <tbody>
+            ${allMats.map((m, i) => `
+              <tr style="background:${i%2===0?'#fff':'var(--paper-dim)'};">
+                <td style="padding:5px 8px;">${m.part_number || '—'}</td>
+                <td style="padding:5px 8px;font-weight:600;">${escapeHtml(m.name)}</td>
+                <td style="padding:5px 8px;text-align:right;">${m.qty}</td>
+                <td style="padding:5px 8px;">${m.unit}</td>
+                <td style="padding:5px 8px;text-align:right;">${m.unitCost ? '$'+(m.unitCost*m.qty).toFixed(2) : '—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        </div>
+      `;
+      wsContent.appendChild(matSection);
+    }
+
+    if (allLabor.length > 0) {
+      const laborSection = document.createElement('div');
+      laborSection.style.cssText = 'margin-top:14px;border-top:1px solid var(--line);padding-top:14px;';
+      const totalHours = allLabor.reduce((s, l) => s + l.hours, 0);
+      laborSection.innerHTML = `
+        <div style="font-weight:700;font-size:14px;margin-bottom:8px;">Cumulative Labor — ${totalHours.toFixed(1)}h total</div>
+        ${allLabor.map(l => `
+          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;">
+            <span>${escapeHtml(l.name)}</span>
+            <span style="font-weight:700;">${l.hours.toFixed(1)}h</span>
+          </div>`).join('')}
+      `;
+      wsContent.appendChild(laborSection);
+    }
 
     // Wire New CO button
     const newCoBtn = overlay.querySelector('#ws-new-co');
@@ -1612,6 +1685,13 @@ async function showHomeBuildWorksheet(homeBuildId) {
       const coId = btn.getAttribute('data-co-sign');
       const co = cos.find(c => c.id === coId);
       if (co) btn.addEventListener('click', () => { close(); showSignatureDialog(co, homeBuildId); });
+    });
+
+    // Wire Log Labor buttons
+    overlay.querySelectorAll('[data-co-labor]').forEach(btn => {
+      const coId = btn.getAttribute('data-co-labor');
+      const co = cos.find(c => c.id === coId);
+      if (co) btn.addEventListener('click', () => { close(); showLogCoLaborDialog(co, homeBuildId); });
     });
 
     // Wire Start Trim button
@@ -1633,14 +1713,24 @@ async function showHomeBuildWorksheet(homeBuildId) {
     const printBtn = overlay.querySelector('#ws-print');
     if (printBtn) printBtn.addEventListener('click', () => {
       const matMap = {};
+      const labMap = {};
       for (const co of cos) {
         for (const m of (co.change_order_materials || [])) {
           const key = m.part_number || m.name;
           if (!matMap[key]) matMap[key] = { part_number: m.part_number, name: m.name, unit: m.unit, qty: 0, cost: m.unit_cost };
           matMap[key].qty += Number(m.quantity);
         }
+        for (const l of (co.change_order_labor || [])) {
+          const te = l.time_entries;
+          if (!te) continue;
+          const emp = te.employees;
+          const name = emp ? `${emp.first_name} ${emp.last_name}` : 'Unknown';
+          if (!labMap[name]) labMap[name] = { name, hours: 0 };
+          labMap[name].hours += Number(te.hours_worked || 0);
+        }
       }
-      const allMats = Object.values(matMap);
+      const printMats = Object.values(matMap);
+      const printLabor = Object.values(labMap).sort((a, b) => b.hours - a.hours);
       const win = window.open('', '_blank');
       win.document.write(`<!DOCTYPE html><html><head><title>Home Build Worksheet</title>
         <style>body{font-family:Arial,sans-serif;font-size:12px;padding:20px;}h2{border-bottom:1px solid #ccc;padding-bottom:4px;margin-top:20px;}table{width:100%;border-collapse:collapse;}th{background:#1a1208;color:#C47C1E;padding:5px 8px;text-align:left;}td{padding:5px 8px;border-bottom:1px solid #eee;}@media print{button{display:none;}}</style>
@@ -1660,7 +1750,11 @@ async function showHomeBuildWorksheet(homeBuildId) {
         </tbody></table>
         <h2>Cumulative Materials</h2>
         <table><thead><tr><th>Part #</th><th>Name</th><th>Total Qty</th><th>Unit</th><th>Unit Cost</th><th>Total</th></tr></thead><tbody>
-        ${allMats.map(m => `<tr><td>${m.part_number||'-'}</td><td>${m.name}</td><td>${m.qty}</td><td>${m.unit}</td><td>${m.cost ? '$'+Number(m.cost).toFixed(2) : '-'}</td><td>${m.cost ? '$'+(m.cost*m.qty).toFixed(2) : '-'}</td></tr>`).join('')}
+        ${printMats.map(m => `<tr><td>${m.part_number||'-'}</td><td>${m.name}</td><td>${m.qty}</td><td>${m.unit}</td><td>${m.cost ? '$'+Number(m.cost).toFixed(2) : '-'}</td><td>${m.cost ? '$'+(m.cost*m.qty).toFixed(2) : '-'}</td></tr>`).join('')}
+        </tbody></table>
+        <h2>Cumulative Labor</h2>
+        <table><thead><tr><th>Employee</th><th>Total Hours</th></tr></thead><tbody>
+        ${printLabor.map(l => `<tr><td>${l.name}</td><td>${l.hours.toFixed(1)}h</td></tr>`).join('')}
         </tbody></table></body></html>`);
       win.document.close();
     });
