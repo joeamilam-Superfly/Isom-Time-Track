@@ -38,6 +38,16 @@ async function renderAdmin(opts) {
       <div id="duplicates-section"></div>
       <div id="job-locations-admin">${loadingHtml()}</div>
 
+      <div class="screen-sub" style="font-weight:600; color:var(--ink); margin: 24px 0 8px;">🔩 Materials Catalog</div>
+      <div id="materials-catalog-section">
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+          <button class="btn btn-amber btn-sm" id="new-material-btn">+ Add item</button>
+          <button class="btn btn-ghost btn-sm" id="import-material-btn">↑ Import CSV</button>
+        </div>
+        <input id="catalog-search" type="text" placeholder="Search catalog..." style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:13px;margin-bottom:10px;box-sizing:border-box;" />
+        <div id="materials-catalog-list">${loadingHtml()}</div>
+      </div>
+
       <div class="screen-sub" style="font-weight:600; color:var(--ink); margin: 24px 0 8px;">📢 Broadcast Messages</div>
       <div id="broadcast-section">
         <button class="btn btn-amber btn-sm" id="new-message-btn" style="margin-bottom:14px;">+ New message</button>
@@ -71,6 +81,10 @@ async function renderAdmin(opts) {
   document.getElementById('export-pdf-btn').addEventListener('click', () => downloadReceiptPdf(weekOf));
   document.getElementById('find-duplicates-btn').addEventListener('click', loadDuplicateGroups);
   document.getElementById('new-message-btn').addEventListener('click', () => showMessageDialog(null));
+  document.getElementById('new-material-btn').addEventListener('click', () => showMaterialDialog(null));
+  document.getElementById('import-material-btn').addEventListener('click', showMaterialImportDialog);
+  document.getElementById('catalog-search').addEventListener('input', e => loadMaterialsCatalog(e.target.value));
+  loadMaterialsCatalog();
   loadBroadcastMessages();
 
   // Populate receipts location filter and wire load button
@@ -948,6 +962,197 @@ async function showMessageDialog(existing) {
     } catch (err) {
       errorEl.textContent = err.message;
       btn.disabled = false; btn.textContent = existing ? 'Save changes' : 'Send message';
+    }
+  });
+}
+
+// ---- Materials Catalog ----
+
+async function loadMaterialsCatalog(searchQ) {
+  const listEl = document.getElementById('materials-catalog-list');
+  if (!listEl) return;
+  try {
+    const q = searchQ ? `&q=${encodeURIComponent(searchQ)}&limit=50` : '&limit=50';
+    const data = await api(withCompany(`/materials-catalog?activeOnly=false${q}`));
+    const items = data.items || [];
+    if (items.length === 0) {
+      listEl.innerHTML = `<div class="screen-sub">${searchQ ? 'No items match your search.' : 'No catalog items yet. Add items or import a CSV.'}</div>`;
+      return;
+    }
+    listEl.innerHTML = `
+      <div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${items.length} item${items.length !== 1 ? 's' : ''}</div>
+      <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:500px;">
+        <thead>
+          <tr style="background:var(--paper-dim);font-size:11px;font-weight:700;color:var(--ink-soft);">
+            <th style="padding:6px 8px;text-align:left;">Part #</th>
+            <th style="padding:6px 8px;text-align:left;">Name</th>
+            <th style="padding:6px 8px;text-align:left;">Category</th>
+            <th style="padding:6px 8px;text-align:left;">Unit</th>
+            <th style="padding:6px 8px;text-align:right;">Unit Cost</th>
+            <th style="padding:6px 8px;text-align:center;">Active</th>
+            <th style="padding:6px 8px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map((item, i) => `
+            <tr style="background:${i % 2 === 0 ? '#fff' : 'var(--paper-dim)'};${item.active ? '' : 'opacity:0.5;'}">
+              <td style="padding:6px 8px;">${item.part_number ? escapeHtml(item.part_number) : '—'}</td>
+              <td style="padding:6px 8px;font-weight:600;">${escapeHtml(item.name)}</td>
+              <td style="padding:6px 8px;">${item.category ? escapeHtml(item.category) : '—'}</td>
+              <td style="padding:6px 8px;">${item.unit || 'each'}</td>
+              <td style="padding:6px 8px;text-align:right;">${item.unit_cost ? '$' + Number(item.unit_cost).toFixed(2) : '—'}</td>
+              <td style="padding:6px 8px;text-align:center;">${item.active ? '✓' : '—'}</td>
+              <td style="padding:6px 8px;">
+                <button class="btn btn-sm btn-ghost" data-edit-material="${item.id}" style="font-size:11px;padding:2px 8px;">Edit</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>
+    `;
+    listEl.querySelectorAll('[data-edit-material]').forEach(btn => {
+      const item = items.find(i => i.id === btn.getAttribute('data-edit-material'));
+      if (item) btn.addEventListener('click', () => showMaterialDialog(item));
+    });
+  } catch (err) {
+    listEl.innerHTML = errorHtml(err.message);
+  }
+}
+
+function showMaterialDialog(existing) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:150;padding:20px;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;width:100%;max-width:420px;padding:20px;">
+      <div style="font-weight:700;font-size:17px;margin-bottom:16px;">${existing ? 'Edit catalog item' : 'Add catalog item'}</div>
+      <div class="field">
+        <label>Part number (optional)</label>
+        <input id="mat-part-number" type="text" value="${existing?.part_number ? escapeHtml(existing.part_number) : ''}" placeholder="e.g. 14-2-NM" />
+      </div>
+      <div class="field">
+        <label>Name *</label>
+        <input id="mat-name" type="text" value="${existing?.name ? escapeHtml(existing.name) : ''}" placeholder="e.g. 14/2 Romex Wire" />
+      </div>
+      <div class="field">
+        <label>Category (optional)</label>
+        <input id="mat-category" type="text" value="${existing?.category ? escapeHtml(existing.category) : ''}" placeholder="e.g. Wire, Boxes, Devices" />
+      </div>
+      <div style="display:flex;gap:10px;">
+        <div class="field" style="flex:1;">
+          <label>Unit</label>
+          <select id="mat-unit" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:13px;">
+            ${['each','box','roll','ft','bag','pack','pair','lb'].map(u => `<option ${(existing?.unit||'each')===u?'selected':''}>${u}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field" style="flex:1;">
+          <label>Unit cost (optional)</label>
+          <input id="mat-unit-cost" type="number" step="0.01" min="0" value="${existing?.unit_cost || ''}" placeholder="0.00" />
+        </div>
+      </div>
+      ${existing ? `
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="mat-active" ${existing.active ? 'checked' : ''} style="width:16px;height:16px;" />
+          Active (appears in change order autofill)
+        </label>
+      </div>` : ''}
+      <div id="mat-error" style="color:#dc2626;font-size:13px;margin-bottom:8px;"></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="mat-cancel">Cancel</button>
+        <button class="btn btn-primary" id="mat-save">${existing ? 'Save changes' : 'Add item'}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => document.body.removeChild(overlay);
+  overlay.querySelector('#mat-cancel').addEventListener('click', close);
+  overlay.querySelector('#mat-save').addEventListener('click', async () => {
+    const name = overlay.querySelector('#mat-name').value.trim();
+    const errorEl = overlay.querySelector('#mat-error');
+    if (!name) { errorEl.textContent = 'Name is required.'; return; }
+    const payload = {
+      companyId: state.activeCompanyId,
+      partNumber: overlay.querySelector('#mat-part-number').value.trim() || null,
+      name,
+      category: overlay.querySelector('#mat-category').value.trim() || null,
+      unit: overlay.querySelector('#mat-unit').value,
+      unitCost: overlay.querySelector('#mat-unit-cost').value || null,
+    };
+    if (existing) {
+      payload.id = existing.id;
+      payload.active = overlay.querySelector('#mat-active').checked;
+    }
+    const btn = overlay.querySelector('#mat-save');
+    btn.disabled = true; btn.textContent = 'Saving...';
+    try {
+      await api('/materials-catalog', { method: existing ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
+      close();
+      loadMaterialsCatalog(document.getElementById('catalog-search')?.value || '');
+    } catch (err) {
+      errorEl.textContent = err.message;
+      btn.disabled = false; btn.textContent = existing ? 'Save changes' : 'Add item';
+    }
+  });
+}
+
+function showMaterialImportDialog() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:150;padding:20px;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;width:100%;max-width:480px;padding:20px;">
+      <div style="font-weight:700;font-size:17px;margin-bottom:8px;">Import CSV</div>
+      <div class="screen-sub" style="margin-bottom:14px;">CSV must have columns: <strong>name</strong> (required), part_number, category, unit, unit_cost. First row is headers.</div>
+      <input type="file" id="mat-csv-file" accept=".csv,.txt" style="margin-bottom:12px;" />
+      <div id="mat-preview" style="max-height:200px;overflow-y:auto;margin-bottom:12px;font-size:12px;"></div>
+      <div id="mat-import-error" style="color:#dc2626;font-size:13px;margin-bottom:8px;"></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="mat-import-cancel">Cancel</button>
+        <button class="btn btn-primary" id="mat-import-save" disabled>Import</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => document.body.removeChild(overlay);
+  overlay.querySelector('#mat-import-cancel').addEventListener('click', close);
+
+  let parsedRows = [];
+  overlay.querySelector('#mat-csv-file').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const lines = ev.target.result.split('\n').filter(l => l.trim());
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/"/g, ''));
+      parsedRows = lines.slice(1).map(line => {
+        const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+        const row = {};
+        headers.forEach((h, i) => { row[h] = vals[i] || ''; });
+        return row;
+      }).filter(r => r.name);
+
+      overlay.querySelector('#mat-preview').innerHTML = `
+        <div style="color:var(--ink-soft);margin-bottom:6px;">${parsedRows.length} items found</div>
+        ${parsedRows.slice(0,5).map(r => `<div style="padding:3px 0;border-bottom:1px solid var(--line);">${r.part_number ? r.part_number + ' — ' : ''}${r.name}${r.category ? ' [' + r.category + ']' : ''}${r.unit_cost ? ' $' + r.unit_cost : ''}</div>`).join('')}
+        ${parsedRows.length > 5 ? `<div style="color:var(--ink-soft);">...and ${parsedRows.length - 5} more</div>` : ''}
+      `;
+      overlay.querySelector('#mat-import-save').disabled = parsedRows.length === 0;
+    };
+    reader.readAsText(file);
+  });
+
+  overlay.querySelector('#mat-import-save').addEventListener('click', async () => {
+    const btn = overlay.querySelector('#mat-import-save');
+    const errorEl = overlay.querySelector('#mat-import-error');
+    btn.disabled = true; btn.textContent = 'Importing...';
+    try {
+      const result = await api('/materials-catalog', { method: 'POST', body: JSON.stringify({ companyId: state.activeCompanyId, items: parsedRows }) });
+      close();
+      loadMaterialsCatalog();
+      alert(`Imported ${result.count} items successfully.`);
+    } catch (err) {
+      errorEl.textContent = err.message;
+      btn.disabled = false; btn.textContent = 'Import';
     }
   });
 }
