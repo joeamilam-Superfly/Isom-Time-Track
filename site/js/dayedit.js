@@ -285,11 +285,11 @@ function showSegmentFormDialog(date, existing, latestSegment) {
       <div class="field-row">
         <div class="field">
           <label for="seg-time-in">Time in</label>
-          <input id="seg-time-in" type="time" value="${existing && existing.time_in ? existing.time_in.slice(0,5) : ''}" />
+          <input id="seg-time-in" type="time" step="60" value="${existing && existing.time_in ? existing.time_in.slice(0,5) : ''}" />
         </div>
         <div class="field">
           <label for="seg-time-out">Time out</label>
-          <input id="seg-time-out" type="time" value="${existing && existing.time_out ? existing.time_out.slice(0,5) : ''}" />
+          <input id="seg-time-out" type="time" step="60" value="${existing && existing.time_out ? existing.time_out.slice(0,5) : ''}" />
         </div>
       </div>
 
