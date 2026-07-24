@@ -59,6 +59,82 @@ async function checkForOverlap(employeeId, companyId, entryDate, timeIn, timeOut
   return overlap ? { overlap } : null;
 }
 
+// Auto-add 0.5h lunch if employee crosses 8h threshold on a given day.
+// Called after every successful time entry save. Safe to call multiple
+// times — checks for existing lunch entry before inserting.
+async function autoAddLunchIfNeeded(employeeId, companyId, entryDate, foremanId) {
+  // Skip weekends and holidays
+  if (isWeekend(entryDate) || isHoliday(entryDate)) return;
+
+  // Fetch all entries for this employee on this date
+  const { data: entries } = await supabase
+    .from('time_entries')
+    .select('id, hours_worked, hours_type, job_locations(name)')
+    .eq('employee_id', employeeId)
+    .eq('company_id', companyId)
+    .eq('entry_date', entryDate);
+
+  if (!entries || entries.length === 0) return;
+
+  // Skip if already has a lunch or break entry
+  const alreadyHasLunch = entries.some(e => {
+    const name = e.job_locations?.name?.toLowerCase() || '';
+    return name.includes('lunch') || name.includes('break');
+  });
+  if (alreadyHasLunch) return;
+
+  // Skip if OFF
+  const isOff = entries.some(e => e.job_locations?.name?.toUpperCase() === 'OFF');
+  if (isOff) return;
+
+  // Sum non-lunch, non-PTO hours
+  const workHours = entries
+    .filter(e => {
+      const name = e.job_locations?.name?.toLowerCase() || '';
+      return !name.includes('lunch') && !name.includes('break') && e.hours_type !== 'pto';
+    })
+    .reduce((sum, e) => sum + Number(e.hours_worked || 0), 0);
+
+  if (workHours < 8.0) return;
+
+  // Get or create Lunch location for this company
+  const { data: lunchLoc } = await supabase
+    .from('job_locations')
+    .select('id')
+    .eq('company_id', companyId)
+    .ilike('name', 'Lunch')
+    .eq('active', true)
+    .limit(1)
+    .single();
+
+  let lunchLocationId = lunchLoc?.id;
+  if (!lunchLocationId) {
+    const { data: created } = await supabase
+      .from('job_locations')
+      .insert({ company_id: companyId, name: 'Lunch', normalized_name: 'lunch', active: true })
+      .select('id')
+      .single();
+    lunchLocationId = created?.id;
+  }
+  if (!lunchLocationId) return;
+
+  await supabase.from('time_entries').insert({
+    employee_id: employeeId,
+    company_id: companyId,
+    entry_date: entryDate,
+    job_location_id: lunchLocationId,
+    activity_description: 'Lunch (auto-added)',
+    hours_worked: 0.5,
+    hours_type: 'regular',
+    is_weekend: false,
+    is_holiday: false,
+    foreman_id: foremanId || null,
+    status: 'draft',
+    time_in: null,
+    time_out: null,
+  });
+}
+
 exports.handler = async (event) => {
   const auth = getAuthContext(event);
   if (!auth) return unauthorized();
@@ -200,6 +276,10 @@ exports.handler = async (event) => {
       .single();
 
     if (error) return errorResponse(error);
+
+    // Auto-add lunch if employee has now crossed 8h threshold for this day
+    await autoAddLunchIfNeeded(targetEmployeeId, companyId, entryDate, finalForemanId);
+
     return { statusCode: 201, body: JSON.stringify({ entry: data }) };
   }
 
@@ -319,6 +399,15 @@ exports.handler = async (event) => {
       .single();
 
     if (error) return errorResponse(error);
+
+    // Auto-add lunch if employee has now crossed 8h threshold for this day
+    await autoAddLunchIfNeeded(
+      existing.employee_id,
+      companyId,
+      finalEntryDate,
+      finalForemanId
+    );
+
     return { statusCode: 200, body: JSON.stringify({ entry: data }) };
   }
 
