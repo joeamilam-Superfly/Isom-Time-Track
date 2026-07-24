@@ -71,25 +71,51 @@ async function renderAdmin(opts) {
   let summaries = [];
   try {
     const weekEnd = addDaysStr(weekOf, 6);
+    const prevWeekOf = addDaysStr(weekOf, -7);
 
-    const [summaryData, openData, billedData, locData] = await Promise.all([
+    // Determine cutoff day for apples-to-apples comparison
+    // If viewing current week: compare up to today's day of week
+    // If viewing a past week: compare full week (saturday)
+    const today = todayStr();
+    const isCurrentWeek = weekOf <= today && today <= weekEnd;
+    const cutoffDay = isCurrentWeek ? today : weekEnd;
+    // Equivalent day in previous week
+    const daysDiff = Math.min(
+      Math.floor((new Date(cutoffDay) - new Date(weekOf)) / (1000*60*60*24)),
+      6
+    );
+    const prevCutoff = addDaysStr(prevWeekOf, daysDiff);
+
+    const [summaryData, prevSummaryData, openData, billedData, locData] = await Promise.all([
       api(withCompany(`/weekly-summary?weekOf=${weekOf}`)),
+      api(withCompany(`/weekly-summary?weekOf=${prevWeekOf}`)),
       api(withCompany('/work-orders?status=open')).catch(() => ({ workOrders: [] })),
       api(withCompany('/work-orders?status=billed')).catch(() => ({ workOrders: [] })),
       api(withCompany('/job-locations?includeInactive=false')).catch(() => ({ locations: [] })),
     ]);
 
     summaries = summaryData.summaries || [];
+    const prevSummaries = prevSummaryData.summaries || [];
 
-    // WOs completed this week (ready_to_bill or billed, completedAt in range)
-    const allWos = [...(openData.workOrders || []), ...(billedData.workOrders || [])];
-    const completedThisWeek = allWos.filter(w => w.completedAt && w.completedAt.slice(0,10) >= weekOf && w.completedAt.slice(0,10) <= weekEnd).length;
+    // Previous week hours: only count entries up to prevCutoff (day-matched)
+    // weekly-summary returns totals for full week — but we need day-matched
+    // We compute from segments filtered to prevWeekOf..prevCutoff
+    const prevTotalHours = prevSummaries.reduce((sum, s) => {
+      const filteredHours = s.days
+        .filter(d => d.date >= prevWeekOf && d.date <= prevCutoff)
+        .reduce((dSum, d) => dSum + d.segments.reduce((sSum, seg) => sSum + (seg.hoursWorked || 0), 0), 0);
+      return sum + filteredHours;
+    }, 0);
+
+    // WOs invoiced this week
     const invoicedThisWeek = (billedData.workOrders || []).filter(w => w.completedAt && w.completedAt.slice(0,10) >= weekOf && w.completedAt.slice(0,10) <= weekEnd).length;
 
     // Job locations added this week
     const newLocations = (locData.locations || []).filter(l => l.created_at && l.created_at.slice(0,10) >= weekOf && l.created_at.slice(0,10) <= weekEnd).length;
 
-    renderAdminSummary(summaries, { completedThisWeek, invoicedThisWeek, newLocations, weekOf, weekEnd });
+    const dayLabel = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(cutoffDay + 'T12:00:00Z').getUTCDay()];
+
+    renderAdminSummary(summaries, { invoicedThisWeek, newLocations, weekOf, weekEnd, prevTotalHours, isCurrentWeek, dayLabel });
   } catch (err) {
     document.getElementById('admin-summary').innerHTML = errorHtml(err.message);
   }
@@ -511,7 +537,24 @@ function renderAdminSummary(summaries, stats) {
   const activeEmployees = summaries.filter(e => e.totals.weeklyHours > 0).length;
   const offEmployees = summaries.filter(e => e.totals.ptoHours > 0 && e.totals.regularHoursWorked === 0).length;
 
-  const { completedThisWeek = 0, invoicedThisWeek = 0, newLocations = 0 } = stats || {};
+  const { invoicedThisWeek = 0, newLocations = 0, prevTotalHours = 0, isCurrentWeek = false, dayLabel = '' } = stats || {};
+
+  // Trend vs previous week (same day cutoff)
+  let trendHtml = '';
+  if (prevTotalHours > 0) {
+    const diff = totalAll - prevTotalHours;
+    const pct = Math.round((diff / prevTotalHours) * 100);
+    const up = diff >= 0;
+    const arrow = up ? '▲' : '▼';
+    const color = up ? '#16a34a' : '#dc2626';
+    const label = isCurrentWeek ? `vs last ${dayLabel} same time` : 'vs prior week';
+    trendHtml = `<div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.08);padding-top:10px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-size:12px;color:rgba(255,255,255,0.4);">${label}</span>
+      <span style="font-size:16px;font-weight:700;color:${color};">${arrow} ${Math.abs(pct)}% (${diff >= 0 ? '+' : ''}${diff.toFixed(1)}h)</span>
+    </div>`;
+  } else if (isCurrentWeek) {
+    trendHtml = `<div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.08);padding-top:10px;font-size:12px;color:rgba(255,255,255,0.4);">No data from last week to compare</div>`;
+  }
 
   const summaryBox = document.createElement('div');
   summaryBox.style.cssText = 'background:#1a1208;border-radius:12px;padding:20px 22px;color:#fff;margin-bottom:20px;';
@@ -554,11 +597,7 @@ function renderAdminSummary(summaries, stats) {
       </div>
 
       <div style="padding:8px 0;">
-        <div style="font-size:12px;color:rgba(255,255,255,0.5);">WOs completed</div>
-        <div style="font-size:18px;font-weight:700;">${completedThisWeek}</div>
-      </div>
-      <div style="padding:8px 0 8px 16px;">
-        <div style="font-size:12px;color:rgba(255,255,255,0.5);">WOs invoiced</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.5);">WOs invoiced this week</div>
         <div style="font-size:18px;font-weight:700;color:${invoicedThisWeek > 0 ? '#16a34a' : '#fff'};">${invoicedThisWeek}</div>
       </div>
     </div>
@@ -567,6 +606,7 @@ function renderAdminSummary(summaries, stats) {
     <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.08);padding-top:10px;font-size:12px;color:rgba(255,255,255,0.5);">
       ${newLocations} new job location${newLocations !== 1 ? 's' : ''} added this week
     </div>` : ''}
+    ${trendHtml}
   `;
 
   el.innerHTML = '';
