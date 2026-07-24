@@ -31,6 +31,9 @@
 [functions."scheduled-message-reads"]
   schedule = "0 * * * *"
 
+[functions."scheduled-keep-warm"]
+  schedule = "*/5 * * * *"
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
