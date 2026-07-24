@@ -9,14 +9,19 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 // Finds or creates a "Lunch" job location at a company, the same
 // pattern as getOrCreateOffLocation in pto-requests.js.
 async function getOrCreateLunchLocation(companyId) {
-  const { data: existing } = await supabase
+  const { data: existing, error: lookupError } = await supabase
     .from('job_locations')
     .select('id')
     .eq('company_id', companyId)
     .ilike('name', 'Lunch')
     .eq('active', true)
-    .maybeSingle();
+    .limit(1)
+    .single();
 
+  // PGRST116 = no rows found, which is expected when location doesn't exist yet
+  if (lookupError && lookupError.code !== 'PGRST116') {
+    console.error(`Lunch location lookup failed for company ${companyId}:`, lookupError.message);
+  }
   if (existing) return existing.id;
 
   const { data: created, error } = await supabase
@@ -195,5 +200,5 @@ exports.handler = async (event) => {
 };
 
 exports.config = {
-  schedule: '0 * * * *',
+  schedule: '0 5 * * *', // 5am UTC = midnight ET (accounts for ET being UTC-5)
 };
