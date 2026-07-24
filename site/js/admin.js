@@ -70,9 +70,26 @@ async function renderAdmin(opts) {
 
   let summaries = [];
   try {
-    const data = await api(withCompany(`/weekly-summary?weekOf=${weekOf}`));
-    summaries = data.summaries || [];
-    renderAdminSummary(summaries);
+    const weekEnd = addDaysStr(weekOf, 6);
+
+    const [summaryData, openData, billedData, locData] = await Promise.all([
+      api(withCompany(`/weekly-summary?weekOf=${weekOf}`)),
+      api(withCompany('/work-orders?status=open')).catch(() => ({ workOrders: [] })),
+      api(withCompany('/work-orders?status=billed')).catch(() => ({ workOrders: [] })),
+      api(withCompany('/job-locations?includeInactive=false')).catch(() => ({ locations: [] })),
+    ]);
+
+    summaries = summaryData.summaries || [];
+
+    // WOs completed this week (ready_to_bill or billed, completedAt in range)
+    const allWos = [...(openData.workOrders || []), ...(billedData.workOrders || [])];
+    const completedThisWeek = allWos.filter(w => w.completedAt && w.completedAt.slice(0,10) >= weekOf && w.completedAt.slice(0,10) <= weekEnd).length;
+    const invoicedThisWeek = (billedData.workOrders || []).filter(w => w.completedAt && w.completedAt.slice(0,10) >= weekOf && w.completedAt.slice(0,10) <= weekEnd).length;
+
+    // Job locations added this week
+    const newLocations = (locData.locations || []).filter(l => l.created_at && l.created_at.slice(0,10) >= weekOf && l.created_at.slice(0,10) <= weekEnd).length;
+
+    renderAdminSummary(summaries, { completedThisWeek, invoicedThisWeek, newLocations, weekOf, weekEnd });
   } catch (err) {
     document.getElementById('admin-summary').innerHTML = errorHtml(err.message);
   }
@@ -481,14 +498,86 @@ function showAddJobLocationDialog() {
   });
 }
 
-function renderAdminSummary(summaries) {
+function renderAdminSummary(summaries, stats) {
   const el = document.getElementById('admin-summary');
+
+  // ---- Team Summary Black Box ----
+  const totalRegular = summaries.reduce((s, e) => s + (e.totals.regularHoursWorked || 0), 0);
+  const totalLunch = summaries.reduce((s, e) => s + (e.totals.lunchHours || 0), 0);
+  const totalOt = summaries.reduce((s, e) => s + (e.totals.overtimeHoursWorked || 0), 0);
+  const totalHol = summaries.reduce((s, e) => s + (e.totals.holidayHours || 0), 0);
+  const totalLeave = summaries.reduce((s, e) => s + (e.totals.ptoHours || 0), 0);
+  const totalAll = summaries.reduce((s, e) => s + (e.totals.weeklyHours || 0), 0);
+  const activeEmployees = summaries.filter(e => e.totals.weeklyHours > 0).length;
+  const offEmployees = summaries.filter(e => e.totals.ptoHours > 0 && e.totals.regularHoursWorked === 0).length;
+
+  const { completedThisWeek = 0, invoicedThisWeek = 0, newLocations = 0 } = stats || {};
+
+  const summaryBox = document.createElement('div');
+  summaryBox.style.cssText = 'background:#1a1208;border-radius:12px;padding:20px 22px;color:#fff;margin-bottom:20px;';
+  summaryBox.innerHTML = `
+    <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.4);letter-spacing:0.1em;margin-bottom:12px;">TEAM SUMMARY — THIS WEEK</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;">
+      <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div style="font-size:12px;color:rgba(255,255,255,0.5);">Regular hours</div>
+        <div style="font-size:18px;font-weight:700;">${totalRegular.toFixed(1)}h</div>
+      </div>
+      <div style="padding:8px 0 8px 16px;border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div style="font-size:12px;color:rgba(255,255,255,0.5);">Overtime hours</div>
+        <div style="font-size:18px;font-weight:700;color:${totalOt > 0 ? '#C47C1E' : '#fff'};">${totalOt.toFixed(1)}h</div>
+      </div>
+      <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div style="font-size:12px;color:rgba(255,255,255,0.5);">Paid lunch</div>
+        <div style="font-size:18px;font-weight:700;">${totalLunch.toFixed(1)}h</div>
+      </div>
+      <div style="padding:8px 0 8px 16px;border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div style="font-size:12px;color:rgba(255,255,255,0.5);">Holiday hours</div>
+        <div style="font-size:18px;font-weight:700;">${totalHol.toFixed(1)}h</div>
+      </div>
+      <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div style="font-size:12px;color:rgba(255,255,255,0.5);">Leave hours</div>
+        <div style="font-size:18px;font-weight:700;">${totalLeave.toFixed(1)}h</div>
+      </div>
+      <div style="padding:8px 0 8px 16px;border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div style="font-size:12px;color:rgba(255,255,255,0.5);">Total team hours</div>
+        <div style="font-size:18px;font-weight:700;color:#C47C1E;">${totalAll.toFixed(1)}h</div>
+      </div>
+
+      <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div style="font-size:12px;color:rgba(255,255,255,0.5);">Active employees</div>
+        <div style="font-size:18px;font-weight:700;">${activeEmployees}</div>
+      </div>
+      <div style="padding:8px 0 8px 16px;border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div style="font-size:12px;color:rgba(255,255,255,0.5);">Employees off</div>
+        <div style="font-size:18px;font-weight:700;">${offEmployees}</div>
+      </div>
+
+      <div style="padding:8px 0;">
+        <div style="font-size:12px;color:rgba(255,255,255,0.5);">WOs completed</div>
+        <div style="font-size:18px;font-weight:700;">${completedThisWeek}</div>
+      </div>
+      <div style="padding:8px 0 8px 16px;">
+        <div style="font-size:12px;color:rgba(255,255,255,0.5);">WOs invoiced</div>
+        <div style="font-size:18px;font-weight:700;color:${invoicedThisWeek > 0 ? '#16a34a' : '#fff'};">${invoicedThisWeek}</div>
+      </div>
+    </div>
+
+    ${newLocations > 0 ? `
+    <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.08);padding-top:10px;font-size:12px;color:rgba(255,255,255,0.5);">
+      ${newLocations} new job location${newLocations !== 1 ? 's' : ''} added this week
+    </div>` : ''}
+  `;
+
+  el.innerHTML = '';
+  el.appendChild(summaryBox);
+
   if (summaries.length === 0) {
-    el.innerHTML = `<div class="empty-state"><div class="icon">&#128203;</div>No entries for this week yet.</div>`;
+    el.innerHTML += `<div class="empty-state"><div class="icon">&#128203;</div>No entries for this week yet.</div>`;
     return;
   }
 
-  el.innerHTML = summaries.map(s => `
+  el.innerHTML += summaries.map(s => `
     <div class="employee-row">
       <div>
         <div class="employee-name">${escapeHtml(s.employeeName || 'Unknown')}</div>
