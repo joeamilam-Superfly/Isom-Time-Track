@@ -391,7 +391,7 @@ async function showLogCoLaborDialog(co, homeBuildId) {
       </div>
       <div class="field">
         <label>Hours worked *</label>
-        <input id="labor-hours" type="number" min="0.25" step="0.25" placeholder="e.g. 2.5" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:13px;box-sizing:border-box;" />
+        <input id="labor-hours" type="number" min="0.01" step="any" placeholder="e.g. 2.75" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:13px;box-sizing:border-box;" />
       </div>
       <div class="field">
         <label>Description (optional)</label>
