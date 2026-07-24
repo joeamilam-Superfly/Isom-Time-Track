@@ -1180,16 +1180,6 @@ async function checkPendingCrewApprovals() {
 
 // ---- Log time toward a WO ----
 function showLogWoTimeDialog(wo) {
-  const times = [];
-  for (let h = 0; h < 24; h++) {
-    for (let m = 0; m < 60; m += 30) {
-      const hh = String(h).padStart(2,'0'), mm = String(m).padStart(2,'0');
-      const label = `${h===0?12:h>12?h-12:h}:${mm} ${h<12?'AM':'PM'}`;
-      times.push({ value: `${hh}:${mm}`, label });
-    }
-  }
-  const timeOptions = times.map(t => `<option value="${t.value}">${t.label}</option>`).join('');
-
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(22,21,20,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;overflow-y:auto;';
   overlay.innerHTML = `
@@ -1206,11 +1196,11 @@ function showLogWoTimeDialog(wo) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div class="field">
           <label for="wo-time-in">Time in</label>
-          <select id="wo-time-in">${timeOptions}</select>
+          <input id="wo-time-in" type="time" step="60" value="07:00" />
         </div>
         <div class="field">
           <label for="wo-time-out">Time out</label>
-          <select id="wo-time-out">${timeOptions}</select>
+          <input id="wo-time-out" type="time" step="60" value="15:30" />
         </div>
       </div>
       <div id="wo-time-hours" style="text-align:center;padding:10px;background:var(--paper-dim);border-radius:8px;font-weight:600;margin-bottom:12px;"></div>
@@ -1233,8 +1223,6 @@ function showLogWoTimeDialog(wo) {
 
   const inSel = overlay.querySelector('#wo-time-in');
   const outSel = overlay.querySelector('#wo-time-out');
-  inSel.value = '07:00';
-  outSel.value = '15:30';
 
   function updateHours() {
     const [ih, im] = inSel.value.split(':').map(Number);
@@ -1246,7 +1234,9 @@ function showLogWoTimeDialog(wo) {
   }
   updateHours();
   inSel.addEventListener('change', updateHours);
+  inSel.addEventListener('input', updateHours);
   outSel.addEventListener('change', updateHours);
+  outSel.addEventListener('input', updateHours);
 
   overlay.querySelector('#wo-log-save').addEventListener('click', async () => {
     const date = overlay.querySelector('#wo-time-date').value;
